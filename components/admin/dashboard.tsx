@@ -133,7 +133,7 @@ function ContactCard({ contact, pending, runAction }: { contact: Contact; pendin
 }
 
 function MagazinesPanel({ issues, userId, runAction }: { issues: Issue[]; userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
-  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>PDF issues are limited to 50 MB; cover images to 8 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
+  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>PDF issues are limited to 400 MB; cover images to 8 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
     <div className="admin-subheading issue-list-heading"><h3 className="editorial">Your issues <span>{issues.length}</span></h3><p>Draft issues stay private until published.</p></div>
     {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} runAction={runAction} />)}</div> : <EmptyState title="No uploaded magazines yet" body="Upload a PDF and optional cover image to add the first issue." />}
   </section>
@@ -151,8 +151,8 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
     const data = new FormData(form)
     const pdf = data.get('pdf')
     const cover = data.get('cover')
-    if (!(pdf instanceof File) || !pdf.size || pdf.type !== 'application/pdf' || pdf.size > 50 * 1024 * 1024) {
-      setMessage('Choose a PDF issue that is 50 MB or smaller.')
+    if (!(pdf instanceof File) || !pdf.size || pdf.type !== 'application/pdf' || pdf.size > 400 * 1024 * 1024) {
+      setMessage('Choose a PDF issue that is 400 MB or smaller.')
       setBusy(false)
       return
     }

@@ -57,7 +57,7 @@ export async function createMagazineIssue(input: {
   if (!issueIdPattern.test(input.id) || !input.title.trim() || input.title.length > 180) throw new Error('Invalid magazine details.')
   if (!ownedBlobPath(input.fileUrl, admin.id, input.id)) throw new Error('The issue file is not a valid upload for this account.')
   if (input.coverUrl && !ownedBlobPath(input.coverUrl, admin.id, input.id)) throw new Error('The cover image is not a valid upload for this account.')
-  if (!Number.isFinite(input.fileSize) || input.fileSize < 0 || input.fileSize > 50 * 1024 * 1024) throw new Error('Issue file must be 50 MB or smaller.')
+  if (!Number.isFinite(input.fileSize) || input.fileSize < 0 || input.fileSize > 400 * 1024 * 1024) throw new Error('Issue file must be 400 MB or smaller.')
   const titleSlug = input.title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'issue'
   const slug = `${titleSlug}-${input.id.slice(0, 8)}`
 
