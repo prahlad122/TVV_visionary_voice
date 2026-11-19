@@ -192,9 +192,15 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       form.reset()
       setMessage('Issue uploaded as a draft. Publish it when it is ready for readers.')
       runAction(async () => undefined, 'Magazine library refreshed.')
-    } catch {
-      setMessage('Upload could not be completed. Check the files and try again.')
-    } finally {
+    } catch (error) {
+  console.error('Magazine upload error:', error)
+
+  setMessage(
+    error instanceof Error
+      ? error.message
+      : 'Upload could not be completed.'
+  )
+} finally {
       setBusy(false)
     }
   }

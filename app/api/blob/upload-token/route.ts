@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
           access: 'private',
           addRandomSuffix: true,
           allowedContentTypes: isCover ? ['image/jpeg', 'image/png', 'image/webp'] : ['application/pdf'],
-          maximumSizeInBytes: isCover ? 8 * 1024 * 1024 : 50 * 1024 * 1024,
+          maximumSizeInBytes: isCover ? 8 * 1024 * 1024 : 250 * 1024 * 1024,
           tokenPayload: JSON.stringify({ userId: admin.id, issueId: payload.issueId, assetType: payload.assetType }),
         }
       },
