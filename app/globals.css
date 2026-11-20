@@ -414,6 +414,13 @@ img { display: block; max-width: 100%; }
 .upload-fields .wide, .page-editor-fields .wide { grid-column: 1 / -1; }
 .upload-fields input[type='file'] { padding: 8px; font-size: 12px; }
 .upload-form > .primary-button { cursor: pointer; }
+.upload-progress { display: grid; gap: 8px; margin: 0 0 16px; }
+.upload-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+.upload-progress-label strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.upload-progress progress { display: block; width: 100%; height: 9px; overflow: hidden; appearance: none; border: 0; border-radius: 999px; background: #e6e3db; }
+.upload-progress progress::-webkit-progress-bar { border-radius: 999px; background: #e6e3db; }
+.upload-progress progress::-webkit-progress-value { border-radius: 999px; background: var(--accent); transition: width .2s ease; }
+.upload-progress progress::-moz-progress-bar { border-radius: 999px; background: var(--accent); transition: width .2s ease; }
 .issue-list-heading { margin-top: 28px; }
 .issue-list-heading h3 span { margin-left: 8px; color: var(--muted); font-family: 'Inter', sans-serif; font-size: 12px; }
 .managed-issue { border-bottom: 1px solid var(--rule); padding: 16px 0; }
@@ -491,6 +498,11 @@ img { display: block; max-width: 100%; }
 .reader-spread, .reader-placeholder-spread { display: grid; width: min(1200px, 100%); height: min(800px, calc(100dvh - 168px)); min-height: 420px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: #fff; box-shadow: 0 18px 48px #20211f25; }
 .reader-page { position: relative; min-width: 0; height: 100%; overflow: auto; background: #fff; }
 .reader-page + .reader-page { border-left: 1px solid #dddcd5; }
+.reader-spread { perspective: 1800px; transform-style: preserve-3d; }
+.reader-spread.is-turning-next > .reader-desktop-page { transform-origin: left center; animation: reader-turn-next .52s cubic-bezier(.22,.72,.28,1) both; backface-visibility: hidden; }
+.reader-spread.is-turning-previous > .reader-page:first-child { transform-origin: right center; animation: reader-turn-previous .52s cubic-bezier(.22,.72,.28,1) both; backface-visibility: hidden; }
+@keyframes reader-turn-next { from { transform: rotateY(-24deg); filter: brightness(.74); box-shadow: -18px 0 24px #20211f20; } to { transform: rotateY(0); filter: brightness(1); box-shadow: none; } }
+@keyframes reader-turn-previous { from { transform: rotateY(24deg); filter: brightness(.74); box-shadow: 18px 0 24px #20211f20; } to { transform: rotateY(0); filter: brightness(1); box-shadow: none; } }
 .reader-canvas-host { position: relative; display: flex; width: calc(100% - 88px); min-height: 100%; align-items: flex-start; justify-content: center; margin: 54px auto; }
 .reader-pdf-canvas { display: block; max-width: none; background: #fff; box-shadow: 0 5px 20px #20211f15; }
 .reader-page-status { position: absolute; top: 12px; left: 0; color: var(--muted); font-size: 12px; }
@@ -531,23 +543,10 @@ img { display: block; max-width: 100%; }
 .reader-search-form input { min-height: 46px; border: 1px solid var(--rule); padding: 0 12px; background: #fff; color: var(--ink); }
 .reader-search-form .primary-button { cursor: pointer; }
 .reader-search-form p { margin: 0; color: var(--ink); font-size: 12px; }
-.reader-placeholder-spread { color: var(--ink); }
-.reader-preview-left { display: flex; flex-direction: column; padding: 64px 48px 32px; }
-.reader-preview-left h1 { margin: 20px 0; font-size: clamp(42px, 4.5vw, 68px); line-height: .98; }
-.reader-accent-line { width: 64px; height: 3px; margin: 4px 0 24px; background: var(--accent); }
-.reader-preview-left blockquote { max-width: 440px; margin: 18px 0; border-left: 2px solid var(--rule); padding-left: 22px; color: var(--muted); font-size: 15px; font-style: italic; line-height: 1.7; }
-.reader-preview-left p { max-width: 470px; color: var(--ink); font-size: 14px; line-height: 1.7; }
-.reader-preview-left .reader-preview-note { border: 1px solid var(--rule); padding: 12px; color: var(--muted); font-size: 12px; }
-.reader-preview-left img { width: min(100%, 400px); max-height: 220px; margin-top: auto; object-fit: cover; object-position: center 30%; }
-.reader-preview-right { display: flex; flex-direction: column; padding: 48px; }
-.reader-preview-right > img { width: 100%; height: 40%; object-fit: cover; object-position: center 35%; }
-.reader-preview-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 34px; }
-.reader-preview-columns h2 { margin: 0 0 12px; font-size: 25px; line-height: 1.1; }
-.reader-preview-columns p { color: var(--muted); font-size: 12px; line-height: 1.7; }
-.reader-preview-status { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; border: 1px solid var(--rule); padding: 16px; background: #f8f7f3; }
-.reader-preview-status strong { font-family: 'Instrument Serif', Georgia, serif; font-size: 25px; font-weight: 400; }
-.reader-preview-status span:last-child { color: var(--muted); font-size: 11px; }
-.reader-unavailable { display: grid; width: min(1200px, calc(100% - 120px)); min-height: 360px; place-items: center; border: 1px solid var(--rule); background: #fff; box-shadow: 0 18px 48px #20211f18; }
+.reader-unavailable { display: flex; width: min(1200px, calc(100% - 120px)); min-height: 360px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 1px solid var(--rule); padding: 32px; background: #fff; box-shadow: 0 18px 48px #20211f18; text-align: center; }
+.reader-unavailable h1, .reader-unavailable p { margin: 0; }
+.reader-unavailable h1 { font-size: 34px; }
+.reader-unavailable p { max-width: 52ch; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .reader-loading-indicator { color: var(--muted); font-size: 14px; }
 .reader-desktop-header a:focus-visible, .reader-mobile-header a:focus-visible, .reader-mobile-header button:focus-visible, .reader-toolbar-group button:focus-visible, .reader-toolbar-group a:focus-visible, .reader-edge-button:focus-visible, .reader-mobile-toolbar button:focus-visible, .reader-mobile-toolbar a:focus-visible, .reader-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -564,7 +563,9 @@ img { display: block; max-width: 100%; }
   .reader-spread, .reader-placeholder-spread { display: block; width: calc(100% - 40px); height: auto; min-height: 0; margin-inline: auto; }
   .reader-page { width: 100%; height: auto; min-height: 0; overflow: visible; }
   .reader-page + .reader-page { border-left: 0; }
+  .reader-spread { grid-template-columns: 1fr; }
   .reader-desktop-page, .reader-edge-button, .reader-desktop-toolbar { display: none; }
+  .reader-spread.is-turning-next > .reader-page:first-child { transform-origin: left center; animation: reader-turn-next .45s cubic-bezier(.22,.72,.28,1) both; backface-visibility: hidden; }
   .reader-canvas-host { width: calc(100% - 40px); min-height: 0; margin: 20px auto; }
   .reader-pdf-canvas { max-width: 100%; }
   .reader-blank-page { display: none; }
@@ -578,13 +579,12 @@ img { display: block; max-width: 100%; }
   .reader-mobile-progress progress::-moz-progress-bar { background: var(--accent); }
   .reader-panel-backdrop { position: fixed; inset: 56px 0 72px; }
   .reader-panel { position: fixed; top: 68px; right: 12px; bottom: 84px; left: 12px; width: auto; padding: 20px; }
-  .reader-preview-left { min-height: 600px; padding: 32px 24px 20px; }
-  .reader-preview-left h1 { margin: 16px 0; font-size: 42px; }
-  .reader-preview-left blockquote { margin: 12px 0; padding-left: 16px; font-size: 13px; }
-  .reader-preview-left p { font-size: 14px; }
-  .reader-preview-left img { max-height: 180px; margin-top: auto; }
-  .reader-preview-right { display: none; }
   .reader-unavailable { width: calc(100% - 40px); min-height: 320px; margin-inline: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-spread.is-turning-next .reader-page,
+  .reader-spread.is-turning-previous .reader-page { animation: none !important; }
 }
 
 /* Editorial refinements: retain original ivory / charcoal / terracotta brand palette. */

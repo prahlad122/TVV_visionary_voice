@@ -24,7 +24,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   try {
-    const result = await get(pathname, { access: 'private' })
+    const range = asset === 'issue' ? request.headers.get('range') : null
+    const result = await get(pathname, {
+      access: 'private',
+      ...(range ? { headers: { Range: range } } : {}),
+    })
     if (!result) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const headers = new Headers({
       'Content-Type': result.blob.contentType ?? 'application/octet-stream',
@@ -32,11 +36,18 @@ export async function GET(request: NextRequest) {
       ETag: result.blob.etag,
       'X-Content-Type-Options': 'nosniff',
     })
+    // Preserve range response metadata so PDF.js can fetch only the pages and
+    // byte ranges it needs instead of buffering a potentially 400 MB PDF.
+    for (const name of ['Content-Range', 'Content-Length', 'Accept-Ranges']) {
+      const value = result.headers.get(name)
+      if (value) headers.set(name, value)
+    }
     if (asset === 'issue') {
       const disposition = request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline'
       headers.set('Content-Disposition', `${disposition}; filename="magazine-issue.pdf"`)
     }
-    return new NextResponse(result.stream, { headers })
+    const status = range && result.headers.get('Content-Range') ? 206 : 200
+    return new NextResponse(result.stream, { headers, status })
   } catch {
     return NextResponse.json({ error: 'Unable to retrieve magazine file.' }, { status: 500 })
   }

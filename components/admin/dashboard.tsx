@@ -142,6 +142,8 @@ function MagazinesPanel({ issues, userId, runAction }: { issues: Issue[]; userId
 function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadStage, setUploadStage] = useState('Uploading magazine files…')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -164,19 +166,32 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
 
     const id = crypto.randomUUID()
     const safeName = (file: File) => file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-100)
+    const totalBytes = pdf.size + (cover instanceof File ? cover.size : 0)
+    const uploadedBytes = { pdf: 0, cover: 0 }
+    const reportProgress = (asset: keyof typeof uploadedBytes, loaded: number) => {
+      uploadedBytes[asset] = Math.max(uploadedBytes[asset], loaded)
+      const uploaded = uploadedBytes.pdf + uploadedBytes.cover
+      setUploadProgress(Math.min(99, Math.floor((uploaded / totalBytes) * 100)))
+    }
     try {
+      setUploadProgress(0)
+      setUploadStage('Uploading magazine files…')
       let coverUrl = ''
       if (cover instanceof File && cover.size) {
         const coverBlob = await upload(`magazines/${userId}/${id}/cover-${safeName(cover)}`, cover, {
           access: 'private', handleUploadUrl: '/api/blob/upload-token',
           clientPayload: JSON.stringify({ issueId: id, assetType: 'cover' }),
+          onUploadProgress: ({ loaded }) => reportProgress('cover', loaded),
         })
         coverUrl = coverBlob.pathname
       }
       const issueBlob = await upload(`magazines/${userId}/${id}/issue-${safeName(pdf)}`, pdf, {
         access: 'private', handleUploadUrl: '/api/blob/upload-token',
         clientPayload: JSON.stringify({ issueId: id, assetType: 'issue' }),
+        onUploadProgress: ({ loaded }) => reportProgress('pdf', loaded),
       })
+      setUploadProgress(100)
+      setUploadStage('Saving issue details…')
       await createMagazineIssue({
         id,
         title: String(data.get('title') ?? '').trim(),
@@ -190,10 +205,12 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
         fileSize: pdf.size,
       })
       form.reset()
+      setUploadProgress(null)
       setMessage('Issue uploaded as a draft. Publish it when it is ready for readers.')
       runAction(async () => undefined, 'Magazine library refreshed.')
     } catch (error) {
   console.error('Magazine upload error:', error)
+  setUploadProgress(null)
 
   setMessage(
     error instanceof Error
@@ -217,6 +234,10 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       <label className="admin-field">Cover image (optional)<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" /></label>
     </div>
     {message && <p className="form-message" role="status">{message}</p>}
+    {busy && uploadProgress !== null && <div className="upload-progress" role="status" aria-live="polite">
+      <div className="upload-progress-label"><span>{uploadStage}</span><strong>{uploadProgress}%</strong></div>
+      <progress max="100" value={uploadProgress} aria-label={`Magazine upload ${uploadProgress}% complete`} />
+    </div>}
     <button className="primary-button" disabled={busy}>{busy ? 'Uploading…' : 'Upload magazine'}</button>
   </form>
 }

@@ -29,6 +29,7 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   )
   const [pageCount, setPageCount] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
+  const [turnDirection, setTurnDirection] = useState<'next' | 'previous' | null>(null)
   const [zoom, setZoom] = useState(100)
   const [isMobile, setIsMobile] = useState(false)
   const [outline, setOutline] = useState<OutlineRow[]>([])
@@ -42,7 +43,7 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   const loadError = pdfError ? 'This e-copy could not be opened. Please try again or return to the magazine archive.' : ''
 
   useEffect(() => {
-    const media = window.matchMedia('(max-width: 639px)')
+    const media = window.matchMedia('(max-width: 767px)')
     const update = () => setIsMobile(media.matches)
     update()
     media.addEventListener('change', update)
@@ -69,11 +70,20 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   }
 
   function previousPage() {
-    goToPage(currentPage - pageStep)
+    turnPage(currentPage - pageStep, 'previous')
   }
 
   function nextPage() {
-    goToPage(currentPage + pageStep)
+    turnPage(currentPage + pageStep, 'next')
+  }
+
+  function turnPage(pageNumber: number, direction: 'next' | 'previous') {
+    const nextPageNumber = Math.max(1, Math.min(pageCount, Math.floor(pageNumber || 1)))
+    if (nextPageNumber === currentPage) return
+    setTurnDirection(null)
+    window.requestAnimationFrame(() => setTurnDirection(direction))
+    setCurrentPage(nextPageNumber)
+    setPanel(null)
   }
 
   function beginTouch(event: TouchEvent<HTMLElement>) {
@@ -149,9 +159,9 @@ export function MagazineReader({ issue }: { issue: Issue }) {
       <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} />
       <main className="reader-main" onTouchStart={beginTouch} onTouchEnd={finishTouch}>
         {pdf ? (
-          <div className="reader-spread" aria-label={`Pages ${currentPage}${!isMobile && currentPage < pageCount ? ` and ${currentPage + 1}` : ''} of ${pageCount}`}>
+          <div className={`reader-spread${turnDirection ? ` is-turning-${turnDirection}` : ''}`} aria-label={`Pages ${currentPage}${!isMobile && currentPage < pageCount ? ` and ${currentPage + 1}` : ''} of ${pageCount}`}>
             <section className="reader-page"><PdfPageCanvas document={pdf} pageNumber={currentPage} zoom={zoom} /></section>
-            <section className="reader-page reader-desktop-page"><PdfPageCanvas document={pdf} pageNumber={currentPage + 1} zoom={zoom} /></section>
+            {!isMobile && <section className="reader-page reader-desktop-page"><PdfPageCanvas document={pdf} pageNumber={currentPage + 1} zoom={zoom} /></section>}
           </div>
         ) : (
           <ReaderPreview issue={issue} loading={loading} error={loadError} />
@@ -263,19 +273,5 @@ function ReaderPanel({ panel, issue, outline, bookmarks, currentPage, isBookmark
 
 function ReaderPreview({ issue, loading, error }: { issue: Issue; loading: boolean; error: string }) {
   if (loading) return <div className="reader-unavailable"><div className="reader-loading-indicator" aria-live="polite">Opening your e-copy…</div></div>
-  return <div className="reader-placeholder-spread">
-    <article className="reader-page reader-preview-left">
-      <span className="eyebrow">In focus / {issue.date}</span>
-      <h1 className="editorial">{issue.title}</h1>
-      <div className="reader-accent-line" />
-      <blockquote>“Great ideas are built by people willing to look at the world from a wider perspective.”</blockquote>
-      <p>{issue.description || `Explore the people and organizations behind ${issue.industry || 'business'} perspectives from ${issue.region || 'around the world'}.`}</p>
-      <p className="reader-preview-note">{error || 'The full e-copy has not been uploaded for this sample issue yet. Once the PDF is uploaded and published, it will open here.'}</p>
-      <img src={issue.image} alt="Magazine issue cover portrait"/>
-    </article>
-    <article className="reader-page reader-preview-right">
-      <img src={issue.image} alt="" />
-      <div className="reader-preview-columns"><div><h2 className="editorial">A wider perspective</h2><p>Read the complete digital edition here, with page navigation, contents, bookmarks, search and download controls.</p><p>When a published PDF is available, this preview is replaced with its original pages.</p></div><div><h2 className="editorial">About this issue</h2><p>{issue.industry} · {issue.region}</p><div className="reader-preview-status"><span className="eyebrow">Digital edition</span><strong>Coming soon</strong><span>Check back after the e-copy is uploaded.</span></div></div></div>
-    </article>
-  </div>
+  return <div className="reader-unavailable" role={error ? 'alert' : 'status'}><h1 className="editorial">{error ? 'Unable to open this issue' : 'PDF not available'}</h1><p>{error || `The PDF for “${issue.title}” has not been uploaded yet.`}</p></div>
 }

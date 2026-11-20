@@ -51,8 +51,7 @@ export async function getPublishedIssues(): Promise<Issue[]> {
     const rows = await db.select().from(magazineIssues)
       .where(eq(magazineIssues.published, true))
       .orderBy(desc(magazineIssues.featured), desc(magazineIssues.issueDate), desc(magazineIssues.createdAt))
-    if (rows.length > 0) {
-      return rows.map((issue) => ({
+    const uploadedIssues = rows.map((issue) => ({
         id: issue.id,
         title: issue.title,
         description: issue.description,
@@ -65,7 +64,11 @@ export async function getPublishedIssues(): Promise<Issue[]> {
         fileUrl: `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`,
         featured: issue.featured,
       }))
-    }
+    // Keep the bundled editorial collection visible when an admin publishes
+    // managed issues. Uploaded issues are listed first, while matching IDs
+    // are only shown once.
+    const uploadedIds = new Set(uploadedIssues.map((issue) => issue.id))
+    return [...uploadedIssues, ...fallbackIssues.filter((issue) => !uploadedIds.has(issue.id))]
   } catch (error) {
     // Public pages have a bundled fallback issue list so a missing/unavailable
     // database does not need to become a full-screen Next.js development error.
