@@ -157,9 +157,9 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   return (
     <div className="reader-shell" id="magazine-reader">
       <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} />
-      <main className="reader-main" onTouchStart={beginTouch} onTouchEnd={finishTouch}>
+      <main className={`reader-main${zoom !== 100 ? ' is-zoomed' : ''}`} onTouchStart={beginTouch} onTouchEnd={finishTouch}>
         {pdf ? (
-          <div className={`reader-spread${turnDirection ? ` is-turning-${turnDirection}` : ''}`} aria-label={`Pages ${currentPage}${!isMobile && currentPage < pageCount ? ` and ${currentPage + 1}` : ''} of ${pageCount}`}>
+          <div className={`reader-spread${turnDirection ? ` is-turning-${turnDirection}` : ''}`} style={zoom !== 100 ? { transform: `scale(${zoom / 100})`, transformOrigin: 'top left' } : undefined} aria-label={`Pages ${currentPage}${!isMobile && currentPage < pageCount ? ` and ${currentPage + 1}` : ''} of ${pageCount}`}>
             <section className="reader-page"><PdfPageCanvas document={pdf} pageNumber={currentPage} zoom={zoom} /></section>
             {!isMobile && <section className="reader-page reader-desktop-page"><PdfPageCanvas document={pdf} pageNumber={currentPage + 1} zoom={zoom} /></section>}
           </div>
@@ -208,7 +208,7 @@ function DesktopToolbar({ issue, currentPage, pageCount, zoom, hasPdf, isBookmar
 }) {
   return <footer className="reader-desktop-toolbar">
     <div className="reader-toolbar-group reader-toolbar-left"><button type="button" onClick={() => onTogglePanel('contents')}><List aria-hidden="true" />Table of Contents</button><button type="button" onClick={() => onTogglePanel('bookmarks')}><Bookmark aria-hidden="true" />Bookmarks</button></div>
-    <div className="reader-toolbar-center"><div className="reader-zoom-control"><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(75, zoom - 25))}><Minus aria-hidden="true" /></button><span>{zoom}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(150, zoom + 25))}><Plus aria-hidden="true" /></button></div><label className="reader-page-input"><span className="sr-only">Current page</span><input type="number" min={1} max={pageCount} value={currentPage} onChange={(event) => onPageChange(Number(event.target.value))} /><span>of {pageCount}</span></label></div>
+    <div className="reader-toolbar-center"><div className="reader-zoom-control"><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(75, zoom - 25))}><Minus aria-hidden="true" /></button><span>{zoom}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 25))}><Plus aria-hidden="true" /></button></div><label className="reader-page-input"><span className="sr-only">Current page</span><input type="number" min={1} max={pageCount} value={currentPage} onChange={(event) => onPageChange(Number(event.target.value))} /><span>of {pageCount}</span></label></div>
     <div className="reader-toolbar-group reader-toolbar-right"><button type="button" onClick={() => onTogglePanel('search')} aria-label="Search issue"><Search aria-hidden="true" /></button>{hasPdf && <a href={issue.fileUrl ? `${issue.fileUrl}&download=1` : undefined} aria-label="Download issue"><Download aria-hidden="true" /></a>}<button type="button" onClick={onFullscreen} aria-label="Toggle fullscreen"><Maximize aria-hidden="true" /></button><button type="button" onClick={onShare} aria-label="Share issue"><Share2 aria-hidden="true" /></button>{shareStatus && <span className="reader-share-status" role="status">{shareStatus}</span>}</div>
   </footer>
 }
