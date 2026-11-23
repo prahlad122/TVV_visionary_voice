@@ -45,19 +45,23 @@ export async function createMagazineIssue(input: {
   id: string
   title: string
   description: string
+  articleText: string
   industry: string
   region: string
   issueDate: string
-  fileUrl: string
+  fileUrl?: string
   coverUrl: string
-  fileName: string
-  fileSize: number
+  fileName?: string
+  fileSize?: number
 }) {
   const admin = await requireAdminAction()
   if (!issueIdPattern.test(input.id) || !input.title.trim() || input.title.length > 180) throw new Error('Invalid magazine details.')
-  if (!ownedBlobPath(input.fileUrl, admin.id, input.id)) throw new Error('The issue file is not a valid upload for this account.')
+  if (typeof input.articleText !== 'string' || input.articleText.length > 120_000) throw new Error('Article text must be 120,000 characters or fewer.')
+  if (!input.articleText.trim() && !input.fileUrl) throw new Error('Provide a PDF, a text file, or pasted article text.')
+  if (input.fileUrl && !ownedBlobPath(input.fileUrl, admin.id, input.id)) throw new Error('The issue file is not a valid upload for this account.')
   if (input.coverUrl && !ownedBlobPath(input.coverUrl, admin.id, input.id)) throw new Error('The cover image is not a valid upload for this account.')
-  if (!Number.isFinite(input.fileSize) || input.fileSize < 0 || input.fileSize > 400 * 1024 * 1024) throw new Error('Issue file must be 400 MB or smaller.')
+  const fileSize = input.fileSize ?? 0
+  if (!Number.isFinite(fileSize) || fileSize < 0 || fileSize > 400 * 1024 * 1024) throw new Error('Issue file must be 400 MB or smaller.')
   const titleSlug = input.title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'issue'
   const slug = `${titleSlug}-${input.id.slice(0, 8)}`
 
@@ -67,13 +71,14 @@ export async function createMagazineIssue(input: {
     title: input.title.trim(),
     slug,
     description: input.description.slice(0, 2000),
+    articleText: input.articleText,
     industry: input.industry.slice(0, 80),
     region: input.region.slice(0, 80),
     issueDate: input.issueDate || null,
-    fileUrl: input.fileUrl,
+    fileUrl: input.fileUrl ?? null,
     coverUrl: input.coverUrl || null,
-    fileName: input.fileName.slice(0, 240),
-    fileSize: Math.round(input.fileSize),
+    fileName: (input.fileName ?? '').slice(0, 240),
+    fileSize: Math.round(fileSize),
     published: false,
     featured: false,
   }).onConflictDoUpdate({
@@ -81,13 +86,14 @@ export async function createMagazineIssue(input: {
     set: {
       title: input.title.trim(),
       description: input.description.slice(0, 2000),
+      articleText: input.articleText,
       industry: input.industry.slice(0, 80),
       region: input.region.slice(0, 80),
       issueDate: input.issueDate || null,
-      fileUrl: input.fileUrl,
+      fileUrl: input.fileUrl ?? null,
       coverUrl: input.coverUrl || null,
-      fileName: input.fileName.slice(0, 240),
-      fileSize: Math.round(input.fileSize),
+      fileName: (input.fileName ?? '').slice(0, 240),
+      fileSize: Math.round(fileSize),
       updatedAt: new Date(),
     },
   })
@@ -96,15 +102,27 @@ export async function createMagazineIssue(input: {
   revalidatePath('/')
 }
 
-export async function updateMagazineIssue(id: string, input: { published?: boolean; featured?: boolean; title?: string }) {
+export async function updateMagazineIssue(id: string, input: { published?: boolean; featured?: boolean; title?: string; articleText?: string }) {
   const admin = await requireAdminAction()
   if (!issueIdPattern.test(id)) throw new Error('Invalid issue.')
   const set: Partial<typeof magazineIssues.$inferInsert> = { updatedAt: new Date() }
   if (input.published !== undefined) set.published = input.published
   if (input.featured !== undefined) set.featured = input.featured
+  if (input.articleText !== undefined) {
+    if (typeof input.articleText !== 'string' || input.articleText.length > 120_000) throw new Error('Article text must be 120,000 characters or fewer.')
+    set.articleText = input.articleText
+  }
   if (input.title !== undefined) {
     if (!input.title.trim() || input.title.length > 180) throw new Error('Invalid issue title.')
     set.title = input.title.trim()
+  }
+  if (input.published === true) {
+    const [issue] = await db.select({ articleText: magazineIssues.articleText, fileUrl: magazineIssues.fileUrl })
+      .from(magazineIssues)
+      .where(and(eq(magazineIssues.id, id), eq(magazineIssues.userId, admin.id)))
+      .limit(1)
+    const articleText = input.articleText ?? issue?.articleText
+    if (!articleText?.trim() && !issue?.fileUrl) throw new Error('Add article text or a PDF before publishing this issue.')
   }
   if (input.featured === true) {
     await db.update(magazineIssues).set({ featured: false, updatedAt: new Date() }).where(eq(magazineIssues.userId, admin.id))
@@ -112,6 +130,7 @@ export async function updateMagazineIssue(id: string, input: { published?: boole
   await db.update(magazineIssues).set(set).where(and(eq(magazineIssues.id, id), eq(magazineIssues.userId, admin.id)))
   revalidatePath('/admin')
   revalidatePath('/magazine')
+  revalidatePath(`/read/${id}`)
   revalidatePath('/')
 }
 

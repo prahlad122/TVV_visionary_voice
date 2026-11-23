@@ -14,7 +14,7 @@ A responsive Next.js 16 publication website with a private administrator workspa
 - Visit `/sign-up` once to create the administrator account using the exact email configured in `ADMIN_EMAIL`
 - Sign in at `/sign-in`; the protected workspace is at `/admin`
 - CRM: search and filter contacts, update lead status and private notes, and export the contacts to CSV
-- Magazine library: upload PDF issues and optional cover art, preview drafts, publish/unpublish, feature one issue, and delete issues
+- Magazine library: upload a PDF, `.txt` article, or pasted article copy (any one is enough), optional cover art, preview drafts, publish/unpublish, feature one issue, and delete issues
 - Page editor: edit and publish the home, magazine, and about page copy
 - Analytics: review consented page views, top pages, traffic sources, and device groups
 
@@ -42,7 +42,7 @@ pnpm db:migrate
 pnpm build
 ```
 
-The migration creates the Better Auth, CMS, magazine, CRM, and analytics tables and indexes. It is idempotent for a new database or a database with matching tables. If your existing database has older tables with different columns, take a backup and reconcile the schema before running it.
+The migration creates the Better Auth, CMS, magazine, CRM, and analytics tables and indexes. It also adds the optional `articleText` field and makes the PDF path optional for existing magazine issue tables. It is idempotent for a new database or a database with matching tables. If your existing database has older tables with different columns, take a backup and reconcile the schema before running it.
 
 ## Deployment
 

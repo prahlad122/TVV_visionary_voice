@@ -5,6 +5,7 @@ export type Issue = {
   fileUrl?: string
   featured?: boolean
   description?: string
+  articleText?: string
   title: string
   date: string
   region: string

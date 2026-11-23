@@ -8,7 +8,7 @@ import { authClient } from '@/lib/auth-client'
 import { createMagazineIssue, deleteMagazineIssue, savePageContent, updateContact, updateMagazineIssue } from '@/lib/actions/admin'
 
 type Contact = { id: string; name: string; email: string; company: string; source: string; sourcePage: string; referrerHost: string; status: string; notes: string; emailConsent: boolean; createdAt: string }
-type Issue = { id: string; title: string; description: string; industry: string; region: string; issueDate: string; coverUrl: string | null; fileUrl: string; fileName: string; fileSize: number; published: boolean; featured: boolean; createdAt: string }
+type Issue = { id: string; title: string; description: string; articleText: string; industry: string; region: string; issueDate: string; coverUrl: string | null; fileUrl: string | null; fileName: string; fileSize: number; published: boolean; featured: boolean; createdAt: string }
 type PageRecord = { slug: string; title: string; content: Record<string, string>; published: boolean }
 type Analytics = { views: number; visitors: number; sessions: number; topSources: Array<{ source: string; medium: string; campaign: string; referrer: string; views: number }>; topPages: Array<{ path: string; views: number }>; devices: Array<{ device: string; views: number }>; recentEvents: Array<{ eventType: string; path: string; source: string; referrer: string; createdAt: string }> }
 type DashboardProps = { userId: string; email: string; contacts: Contact[]; issues: Issue[]; pages: PageRecord[]; analytics: Analytics }
@@ -133,9 +133,9 @@ function ContactCard({ contact, pending, runAction }: { contact: Contact; pendin
 }
 
 function MagazinesPanel({ issues, userId, runAction }: { issues: Issue[]; userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
-  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>PDF issues are limited to 400 MB; cover images to 8 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
+  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>Provide a PDF, article text file, or pasted article. PDFs may be up to 400 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
     <div className="admin-subheading issue-list-heading"><h3 className="editorial">Your issues <span>{issues.length}</span></h3><p>Draft issues stay private until published.</p></div>
-    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} runAction={runAction} />)}</div> : <EmptyState title="No uploaded magazines yet" body="Upload a PDF and optional cover image to add the first issue." />}
+    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} runAction={runAction} />)}</div> : <EmptyState title="No magazine issues yet" body="Start with a PDF, a text article file, or pasted article copy." />}
   </section>
 }
 
@@ -152,8 +152,11 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
     const form = event.currentTarget
     const data = new FormData(form)
     const pdf = data.get('pdf')
+    const selectedPdf = pdf instanceof File && pdf.size ? pdf : null
     const cover = data.get('cover')
-    if (!(pdf instanceof File) || !pdf.size || pdf.type !== 'application/pdf' || pdf.size > 400 * 1024 * 1024) {
+    const articleFile = data.get('articleFile')
+    let articleText = String(data.get('articleText') ?? '').trim()
+    if (selectedPdf && (selectedPdf.type !== 'application/pdf' || selectedPdf.size > 400 * 1024 * 1024)) {
       setMessage('Choose a PDF issue that is 400 MB or smaller.')
       setBusy(false)
       return
@@ -163,15 +166,39 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       setBusy(false)
       return
     }
+    if (articleFile instanceof File && articleFile.size) {
+      if (!articleFile.name.toLowerCase().endsWith('.txt') || articleFile.size > 500_000) {
+        setMessage('Article file must be a .txt file no larger than 500 KB.')
+        setBusy(false)
+        return
+      }
+      try {
+        articleText = (await articleFile.text()).trim()
+      } catch {
+        setMessage('The article text file could not be read. Save it as UTF-8 .txt and try again.')
+        setBusy(false)
+        return
+      }
+    }
+    if (articleText.length > 120_000) {
+      setMessage('Article text must be 120,000 characters or fewer.')
+      setBusy(false)
+      return
+    }
+    if (!articleText && !selectedPdf) {
+      setMessage('Choose a PDF, upload a .txt article, or paste article text.')
+      setBusy(false)
+      return
+    }
 
     const id = crypto.randomUUID()
     const safeName = (file: File) => file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-100)
-    const totalBytes = pdf.size + (cover instanceof File ? cover.size : 0)
+    const totalBytes = (selectedPdf?.size ?? 0) + (cover instanceof File ? cover.size : 0)
     const uploadedBytes = { pdf: 0, cover: 0 }
     const reportProgress = (asset: keyof typeof uploadedBytes, loaded: number) => {
       uploadedBytes[asset] = Math.max(uploadedBytes[asset], loaded)
       const uploaded = uploadedBytes.pdf + uploadedBytes.cover
-      setUploadProgress(Math.min(99, Math.floor((uploaded / totalBytes) * 100)))
+      setUploadProgress(totalBytes ? Math.min(99, Math.floor((uploaded / totalBytes) * 100)) : 99)
     }
     try {
       setUploadProgress(0)
@@ -185,24 +212,29 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
         })
         coverUrl = coverBlob.pathname
       }
-      const issueBlob = await upload(`magazines/${userId}/${id}/issue-${safeName(pdf)}`, pdf, {
-        access: 'private', handleUploadUrl: '/api/blob/upload-token',
-        clientPayload: JSON.stringify({ issueId: id, assetType: 'issue' }),
-        onUploadProgress: ({ loaded }) => reportProgress('pdf', loaded),
-      })
+      let issueFileUrl: string | undefined
+      if (selectedPdf) {
+        const issueBlob = await upload(`magazines/${userId}/${id}/issue-${safeName(selectedPdf)}`, selectedPdf, {
+          access: 'private', handleUploadUrl: '/api/blob/upload-token',
+          clientPayload: JSON.stringify({ issueId: id, assetType: 'issue' }),
+          onUploadProgress: ({ loaded }) => reportProgress('pdf', loaded),
+        })
+        issueFileUrl = issueBlob.pathname
+      }
       setUploadProgress(100)
       setUploadStage('Saving issue details…')
       await createMagazineIssue({
         id,
         title: String(data.get('title') ?? '').trim(),
         description: String(data.get('description') ?? '').trim(),
+        articleText,
         industry: String(data.get('industry') ?? '').trim(),
         region: String(data.get('region') ?? '').trim(),
         issueDate: String(data.get('issueDate') ?? ''),
-        fileUrl: issueBlob.pathname,
+        fileUrl: issueFileUrl,
         coverUrl,
-        fileName: pdf.name,
-        fileSize: pdf.size,
+        fileName: selectedPdf?.name,
+        fileSize: selectedPdf?.size,
       })
       form.reset()
       setUploadProgress(null)
@@ -230,7 +262,10 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       <label className="admin-field">Industry<input name="industry" maxLength={80} placeholder="Leadership, healthcare…" /></label>
       <label className="admin-field">Region<input name="region" maxLength={80} placeholder="Global, America…" /></label>
       <label className="admin-field wide">Description<textarea name="description" rows={3} maxLength={2000} placeholder="Short issue description" /></label>
-      <label className="admin-field">Magazine PDF<input name="pdf" type="file" accept="application/pdf,.pdf" required /></label>
+      <p className="admin-field wide upload-source-note">Provide any one: a PDF, a .txt article, or pasted text. Article text gives readers the fastest experience.</p>
+      <label className="admin-field wide">Article text file (optional)<input name="articleFile" type="file" accept=".txt,text/plain" /><small>Files are limited to 500 KB.</small></label>
+      <label className="admin-field wide">Or paste article text<textarea name="articleText" rows={10} maxLength={120000} placeholder="Paste the article text here. Use a blank line between paragraphs. Lines starting with # become section headings." /><small>Up to 120,000 characters. Text files take priority if both are provided.</small></label>
+      <label className="admin-field">Magazine PDF (optional)<input name="pdf" type="file" accept="application/pdf,.pdf" /></label>
       <label className="admin-field">Cover image (optional)<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" /></label>
     </div>
     {message && <p className="form-message" role="status">{message}</p>}
@@ -243,7 +278,8 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
 }
 
 function IssueManager({ issue, runAction }: { issue: Issue; runAction: (action: () => Promise<unknown>, success: string) => void }) {
-  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString()}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions"><a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div></article>
+  const [articleText, setArticleText] = useState(issue.articleText ?? '')
+  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString()}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions">{issue.fileUrl && <a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a>}<button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div><details className="issue-article-editor"><summary>{articleText.trim() ? 'Edit article text' : 'Add article text'}</summary><label className="admin-field">Article text<textarea value={articleText} onChange={(event) => setArticleText(event.target.value)} rows={10} maxLength={120000} placeholder="Paste the article text here. Use a blank line between paragraphs; lines starting with # become section headings." /><small>{articleText.length.toLocaleString()} / 120,000 characters</small></label><button className="secondary-button" type="button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { articleText }), 'Article text saved.')}>Save article text</button></details></article>
 }
 
 function PagesPanel({ pages, pending, runAction }: { pages: PageRecord[]; pending: boolean; runAction: (action: () => Promise<unknown>, success: string) => void }) {

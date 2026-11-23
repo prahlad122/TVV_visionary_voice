@@ -69,12 +69,13 @@ CREATE TABLE IF NOT EXISTS "magazine_issues" (
   "title" text NOT NULL,
   "slug" text NOT NULL,
   "description" text NOT NULL DEFAULT '',
+  "articleText" text NOT NULL DEFAULT '',
   "industry" text NOT NULL DEFAULT '',
   "region" text NOT NULL DEFAULT '',
   "issueDate" date,
   "coverUrl" text,
-  "fileUrl" text NOT NULL,
-  "fileName" text NOT NULL,
+  "fileUrl" text,
+  "fileName" text NOT NULL DEFAULT '',
   "fileSize" bigint NOT NULL DEFAULT 0,
   "published" boolean NOT NULL DEFAULT false,
   "featured" boolean NOT NULL DEFAULT false,
@@ -83,6 +84,9 @@ CREATE TABLE IF NOT EXISTS "magazine_issues" (
   CONSTRAINT "magazine_issues_user_slug_unique" UNIQUE ("userId", "slug")
 );
 CREATE INDEX IF NOT EXISTS "magazine_issues_public_idx" ON "magazine_issues" ("published", "featured", "issueDate");
+ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "articleText" text NOT NULL DEFAULT '';
+ALTER TABLE "magazine_issues" ALTER COLUMN "fileUrl" DROP NOT NULL;
+ALTER TABLE "magazine_issues" ALTER COLUMN "fileName" SET DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS "crm_contacts" (
   "id" text PRIMARY KEY,
