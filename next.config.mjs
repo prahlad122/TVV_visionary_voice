@@ -5,9 +5,12 @@ const nextConfig = {
   allowedDevOrigins: ['192.168.1.42'],
 
   images: {
-    unoptimized: true,
+    
     localPatterns: [
     { pathname: '/api/magazine-assets' },
+    { pathname: '/tvv-logo.png' },
+    { pathname: '/edition-*.png' },
+    { pathname: '/cover-*.png' },
   ],
   },
 
