@@ -6,6 +6,9 @@ const nextConfig = {
 
   images: {
     unoptimized: true,
+    localPatterns: [
+    { pathname: '/api/magazine-assets' },
+  ],
   },
 
   async headers() {
