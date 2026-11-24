@@ -43,7 +43,7 @@ export const auth = betterAuth({
       ? [
           "http://localhost:3000",
           "http://127.0.0.1:3000",
-          "http://192.168.1.42:3000",
+          "http://192.168.1.5:3000",
           ...(process.env.V0_RUNTIME_URL ? [process.env.V0_RUNTIME_URL] : []),
           ...(process.env.V0_DEV_APP_URL ? [process.env.V0_DEV_APP_URL] : []),
           ...(process.env.V0_BUILD_URL ? [process.env.V0_BUILD_URL] : []),

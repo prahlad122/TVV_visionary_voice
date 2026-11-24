@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ArrowLeft, Download, ExternalLink } from 'lucide-react'
+import { ArrowLeft, BookOpen, Download, ExternalLink } from 'lucide-react'
 import * as pdfjs from 'pdfjs-dist'
 import type { Issue } from './issue-cover'
+import { LARGE_PDF_OPTIONS } from './page-image-cache'
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
@@ -29,7 +30,8 @@ export function ArticleReader({ issue }: { issue: Issue }) {
   useEffect(() => {
     if (issue.articleText?.trim() || !issue.fileUrl) return
     let cancelled = false
-    const task = pdfjs.getDocument({ url: issue.fileUrl, withCredentials: true })
+    // Range-load instead of streaming the whole file in the background.
+    const task = pdfjs.getDocument({ url: issue.fileUrl, withCredentials: true, ...LARGE_PDF_OPTIONS })
     task.promise.then(async (pdf) => {
       const rawPages: ExtractedPage[] = []
       for (let number = 1; number <= pdf.numPages; number += 1) {
@@ -82,7 +84,7 @@ export function ArticleReader({ issue }: { issue: Issue }) {
         <h1 className="editorial">{issue.title}</h1>
         <p className="article-deck">{issue.description || `A ${issue.industry.toLowerCase()} perspective from ${issue.region}.`}</p>
         <figure className="article-lead-image"><Image src={issue.image} alt={`Cover image for ${issue.title}`} fill priority sizes="(max-width: 720px) 100vw, 760px" /><figcaption>From the {issue.date} {issue.industry} edition</figcaption></figure>
-        <div className="article-byline"><span>THE VISIONARY VOICE</span><span>{issue.date}</span>{issue.fileUrl && <a href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download original PDF</a>}</div>
+        <div className="article-byline"><span>THE VISIONARY VOICE</span><span>{issue.date}</span>{issue.fileUrl && <Link href={`/read/${encodeURIComponent(issue.id)}/book`}><BookOpen aria-hidden="true" /> Read as a magazine</Link>}{issue.fileUrl && <a href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download original PDF</a>}</div>
         <section className="article-body" aria-label="Issue article content">
           {issue.articleText?.trim()
             ? <><p className="article-intro">{issue.description}</p><EditorialCopy text={issue.articleText} /></>

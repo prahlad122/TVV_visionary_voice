@@ -2,7 +2,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Allow access from your local network IP during development
-  allowedDevOrigins: ['192.168.1.42'],
+  allowedDevOrigins: ['192.168.1.42','192.168.1.5'],
 
   images: {
     

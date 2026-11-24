@@ -215,7 +215,8 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       let issueFileUrl: string | undefined
       if (selectedPdf) {
         const issueBlob = await upload(`magazines/${userId}/${id}/issue-${safeName(selectedPdf)}`, selectedPdf, {
-          access: 'private', handleUploadUrl: '/api/blob/upload-token',
+          // Multipart splits issue PDFs of up to 400 MB into parallel, retryable parts.
+          access: 'private', handleUploadUrl: '/api/blob/upload-token', multipart: true,
           clientPayload: JSON.stringify({ issueId: id, assetType: 'issue' }),
           onUploadProgress: ({ loaded }) => reportProgress('pdf', loaded),
         })

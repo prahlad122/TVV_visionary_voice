@@ -1,12 +1,13 @@
 'use client'
 
-import { type FormEvent, type KeyboardEvent, type TouchEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import Link from 'next/link'
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, Download, List, Maximize, Minus, Plus, Search, Share2, X } from 'lucide-react'
+import { ArrowLeft, Bookmark, Download, List, Maximize, Minus, Plus, Search, Share2, X } from 'lucide-react'
 import * as pdfjs from 'pdfjs-dist'
 import type { Issue } from './issue-cover'
-import { PdfPageCanvas, type ReaderPdf } from './pdf-page'
+import { BookViewer } from './book-viewer'
+import { LARGE_PDF_OPTIONS, type ReaderPdf } from './page-image-cache'
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
@@ -24,12 +25,11 @@ function flattenOutline(items: OutlineNode[], depth = 0): OutlineRow[] {
 export function MagazineReader({ issue }: { issue: Issue }) {
   const { data: pdf, isLoading, error: pdfError } = useSWR<ReaderPdf, Error>(
     issue.fileUrl ?? null,
-    (url) => pdfjs.getDocument({ url, withCredentials: true }).promise,
+    (url) => pdfjs.getDocument({ url, withCredentials: true, ...LARGE_PDF_OPTIONS }).promise,
     { revalidateOnFocus: false, revalidateOnReconnect: false, shouldRetryOnError: false },
   )
   const [pageCount, setPageCount] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
-  const [turnDirection, setTurnDirection] = useState<'next' | 'previous' | null>(null)
   const [zoom, setZoom] = useState(100)
   const [isMobile, setIsMobile] = useState(false)
   const [outline, setOutline] = useState<OutlineRow[]>([])
@@ -38,7 +38,6 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchStatus, setSearchStatus] = useState('')
   const [shareStatus, setShareStatus] = useState('')
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const loading = Boolean(issue.fileUrl) && isLoading
   const loadError = pdfError ? 'This e-copy could not be opened. Please try again or return to the magazine archive.' : ''
 
@@ -60,48 +59,15 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   }, [pdf])
 
   const progress = useMemo(() => pageCount ? Math.round((currentPage / pageCount) * 100) : 0, [currentPage, pageCount])
-  const pageStep = isMobile ? 1 : 2
-  const canGoBack = currentPage > 1
-  const canGoForward = currentPage < pageCount
-
   function goToPage(pageNumber: number) {
     setCurrentPage(Math.max(1, Math.min(pageCount, Math.floor(pageNumber || 1))))
     setPanel(null)
   }
 
-  function previousPage() {
-    turnPage(currentPage - pageStep, 'previous')
-  }
-
-  function nextPage() {
-    turnPage(currentPage + pageStep, 'next')
-  }
-
-  function turnPage(pageNumber: number, direction: 'next' | 'previous') {
-    const nextPageNumber = Math.max(1, Math.min(pageCount, Math.floor(pageNumber || 1)))
-    if (nextPageNumber === currentPage) return
-    setTurnDirection(null)
-    window.requestAnimationFrame(() => setTurnDirection(direction))
-    setCurrentPage(nextPageNumber)
+  // Page turns come from the book (page clicks, edge buttons, arrow keys, swipes).
+  function turnTo(pageNumber: number) {
+    setCurrentPage(pageNumber)
     setPanel(null)
-  }
-
-  function beginTouch(event: TouchEvent<HTMLElement>) {
-    const touch = event.changedTouches[0]
-    touchStart.current = { x: touch.clientX, y: touch.clientY }
-  }
-
-  function finishTouch(event: TouchEvent<HTMLElement>) {
-    const start = touchStart.current
-    touchStart.current = null
-    if (!start) return
-    const touch = event.changedTouches[0]
-    const deltaX = touch.clientX - start.x
-    const deltaY = touch.clientY - start.y
-    if (Math.abs(deltaX) > 56 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      if (deltaX < 0) nextPage()
-      else previousPage()
-    }
   }
 
   function toggleBookmark() {
@@ -157,17 +123,12 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   return (
     <div className="reader-shell" id="magazine-reader">
       <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} />
-      <main className={`reader-main${zoom !== 100 ? ' is-zoomed' : ''}`} onTouchStart={beginTouch} onTouchEnd={finishTouch}>
+      <main className={`reader-main${pdf ? ' has-book' : ''}`}>
         {pdf ? (
-          <div className={`reader-spread${turnDirection ? ` is-turning-${turnDirection}` : ''}`} style={zoom !== 100 ? { transform: `scale(${zoom / 100})`, transformOrigin: 'top left' } : undefined} aria-label={`Pages ${currentPage}${!isMobile && currentPage < pageCount ? ` and ${currentPage + 1}` : ''} of ${pageCount}`}>
-            <section className="reader-page"><PdfPageCanvas document={pdf} pageNumber={currentPage} zoom={zoom} /></section>
-            {!isMobile && <section className="reader-page reader-desktop-page"><PdfPageCanvas document={pdf} pageNumber={currentPage + 1} zoom={zoom} /></section>}
-          </div>
+          <BookViewer pdf={pdf} page={currentPage} zoom={zoom} singlePage={isMobile} onPageChange={turnTo} />
         ) : (
           <ReaderPreview issue={issue} loading={loading} error={loadError} />
         )}
-        <button className="reader-edge-button reader-previous" type="button" aria-label="Previous page" disabled={!canGoBack} onClick={previousPage}><ChevronLeft aria-hidden="true" /></button>
-        <button className="reader-edge-button reader-next" type="button" aria-label="Next page" disabled={!canGoForward} onClick={nextPage}><ChevronRight aria-hidden="true" /></button>
         {panel && <ReaderPanel panel={panel} issue={issue} outline={outline} bookmarks={bookmarks} currentPage={currentPage} isBookmarked={bookmarks.includes(currentPage)} pdf={pdf ?? null} searchTerm={searchTerm} searchStatus={searchStatus} onClose={() => setPanel(null)} onJump={goToPage} onBookmark={toggleBookmark} onSearchChange={setSearchTerm} onSearchSubmit={searchPdf} onSearchKeyDown={handleSearchKeyDown} />}
       </main>
       <DesktopToolbar issue={issue} currentPage={currentPage} pageCount={pageCount} zoom={zoom} hasPdf={Boolean(pdf)} isBookmarked={bookmarks.includes(currentPage)} shareStatus={shareStatus} onPageChange={goToPage} onZoomChange={setZoom} onTogglePanel={setPanel} onBookmark={toggleBookmark} onFullscreen={toggleFullscreen} onShare={shareIssue} />
