@@ -4,9 +4,7 @@ const nextConfig = {
   // Allow access from your local network IP during development
   allowedDevOrigins: ['192.168.1.42'],
 
-  images: {
-    unoptimized: true,
-  },
+   
 
   async headers() {
     return [
