@@ -29,3 +29,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# This project uses pnpm (see packageManager in package.json); keep only pnpm-lock.yaml.
+package-lock.json
+yarn.lock
