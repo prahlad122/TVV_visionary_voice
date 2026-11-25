@@ -56,6 +56,13 @@ export async function getPublishedIssues(): Promise<Issue[]> {
         title: issue.title,
         description: issue.description,
         articleText: issue.articleText,
+        summary: issue.summaryStatus === 'ready' ? issue.summary : '',
+        pages: issue.pageImages.map((image, index) => ({
+          // `v` is the stored file name: it changes when pages are re-rendered, so the URL can be cached forever.
+          url: `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=page&n=${index + 1}&v=${encodeURIComponent(image.path.split('/').pop() ?? '')}`,
+          width: image.width,
+          height: image.height,
+        })),
         date: issue.issueDate ? new Date(`${issue.issueDate}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : issue.createdAt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
         region: issue.region,
         industry: issue.industry,

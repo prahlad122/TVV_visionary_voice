@@ -18,7 +18,7 @@ A responsive Next.js 16 publication website with a private administrator workspa
 - Page editor: edit and publish the home, magazine, and about page copy
 - Analytics: review consented page views, top pages, traffic sources, and device groups
 
-All administrator actions are checked server-side against `ADMIN_EMAIL`. Uploaded magazine files are stored as private Vercel Blob objects and served through an access-controlled route.
+All administrator actions are checked server-side against `ADMIN_EMAIL`. Uploaded magazine files are stored in a private Cloudflare R2 bucket and served through an access-controlled route. The admin's browser uploads files straight to R2 using short-lived signed URLs.
 
 ## Required Vercel environment variables
 
@@ -28,7 +28,18 @@ Set these in the existing Vercel project for Production and Preview as appropria
 - `ADMIN_EMAIL` — the one email address allowed to register and administer the site
 - `BETTER_AUTH_SECRET` — a long, random secret for Better Auth and analytics signing
 - `BETTER_AUTH_URL` — canonical site URL, e.g. `https://your-domain.example`
-- `BLOB_READ_WRITE_TOKEN` — Vercel Blob token for private magazine uploads
+- `R2_ACCOUNT_ID` — Cloudflare account ID
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — an R2 API token with Object Read & Write on the bucket
+- `R2_BUCKET` — the private R2 bucket that holds magazine files
+- `GEMINI_API_KEY` — Google AI Studio key; Gemini reads each uploaded PDF and writes its summary
+- `GROQ_API_KEY` — Groq key; `openai/gpt-oss-120b` writes the summary from the extracted text when Gemini fails
+- `GEMINI_MODEL`, `GROQ_MODEL` — optional model overrides (defaults `gemini-3.5-flash`, `openai/gpt-oss-120b`)
+
+The bucket needs a CORS rule so browsers can upload to it directly:
+
+```json
+[{ "AllowedOrigins": ["http://localhost:3000", "https://your-domain.example"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
+```
 
 Do not commit `.env` files or share secret values.
 

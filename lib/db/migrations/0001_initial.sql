@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS "magazine_issues" (
 );
 CREATE INDEX IF NOT EXISTS "magazine_issues_public_idx" ON "magazine_issues" ("published", "featured", "issueDate");
 ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "articleText" text NOT NULL DEFAULT '';
+ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "summary" text NOT NULL DEFAULT '';
+ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "summaryStatus" text NOT NULL DEFAULT '';
+ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "summaryModel" text NOT NULL DEFAULT '';
+ALTER TABLE "magazine_issues" ADD COLUMN IF NOT EXISTS "pageImages" jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE "magazine_issues" ALTER COLUMN "fileUrl" DROP NOT NULL;
 ALTER TABLE "magazine_issues" ALTER COLUMN "fileName" SET DEFAULT '';
 

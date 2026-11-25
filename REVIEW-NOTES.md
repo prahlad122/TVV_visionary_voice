@@ -11,10 +11,10 @@
 
 ## QA and launch blockers
 - Node package dependencies could not be installed in this sandbox; Next.js build and authenticated flows have NOT been executed.
-- Admin routes and upload/CRM/analytics remain in source but have not been validated against PostgreSQL or Vercel Blob.
+- Admin routes and upload/CRM/analytics remain in source but have not been validated against PostgreSQL or Cloudflare R2.
 - The data layer intentionally falls back to sample covers/issues when no published issues can be loaded. Replace sample data with approved live issues before public launch.
 - Verify edition cover/image rights, issue PDF upload/download, auth/sign-up restriction, newsletter opt-in, CMS publish states, CSV exports and mobile reader on a live staging environment.
-- Supply the final domain and hosting provider before configuring canonical URL, Better Auth URL, SSL/DNS, production database and blob storage.
+- Supply the final domain and hosting provider before configuring canonical URL, Better Auth URL, SSL/DNS, production database and R2 storage.
 
 ## Visual preview
 The `preview.html` file uses the existing CSS and sample cover assets as a standalone visual representation of the revised homepage. It is NOT a connected Next.js/admin preview, and links are local anchors rather than live app routes. Open `preview.html` inside the extracted project to see desktop/mobile responsive behavior.

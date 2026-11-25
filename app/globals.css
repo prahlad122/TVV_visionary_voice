@@ -122,6 +122,7 @@ img { display: block; max-width: 100%; }
 .editorial-row h3 { margin: 0 0 10px; font-size: 29px; line-height: 1.12; }
 .editorial-row p, .about-feature p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 .two-column-info { display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px; }
+.two-column-info .section-title + p { margin: 12px 0 0; }
 .taxonomy-rule { grid-column: 1 / -1; width: 100%; }
 .industry-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); grid-auto-flow: column; column-gap: 40px; margin-top: 22px; }
 .region-list { display: flex; flex-wrap: wrap; gap: 10px 12px; margin-top: 20px; }
@@ -155,7 +156,7 @@ img { display: block; max-width: 100%; }
 .archive-headline h1 { margin: 0; font-size: clamp(58px, 6.2vw, 88px); line-height: 1.04; letter-spacing: -2px; }
 .archive-headline p { margin: 0 0 9px; color: var(--muted); font-size: 15px; line-height: 1.7; }
 .archive-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
-.search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-top: 36px; }
 .search-row .primary-button { min-height: 64px; }
 .search-field { display: flex; min-height: 64px; align-items: center; gap: 14px; border: 1px solid var(--rule); padding: 0 20px; background: #fff; }
 .search-input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 15px; }
@@ -413,6 +414,23 @@ img { display: block; max-width: 100%; }
 .upload-fields, .page-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-block: 18px; }
 .upload-fields .wide, .page-editor-fields .wide { grid-column: 1 / -1; }
 .upload-fields input[type='file'] { padding: 8px; font-size: 12px; }
+/* Dashed "click or drop a file here" areas in the upload form. */
+.dropzone-field { gap: 8px; }
+.dropzone-label { color: var(--ink); font-size: 13px; }
+.dropzone { position: relative; display: flex; min-height: 132px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 2px dashed #c9c2b4; padding: 22px 18px; background: #fff; color: var(--muted); text-align: center; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.dropzone:hover, .dropzone.is-dragging { border-color: var(--accent); background: #fdf6f4; }
+.dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dropzone.has-file { border-style: solid; border-color: #b9b2a4; background: #faf8f3; }
+.admin-field .dropzone-input { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip: rect(0 0 0 0); border: 0; padding: 0; opacity: 0; }
+.dropzone-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: #f4f2ed; color: var(--accent); }
+.dropzone-icon svg { width: 20px; height: 20px; }
+.dropzone-text { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.dropzone-text strong { overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.dropzone-text strong u { color: var(--accent); text-underline-offset: 3px; }
+.dropzone-text small { font-size: 11px; }
+.dropzone-clear { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; border: 0; padding: 0; background: none; color: var(--muted); font-size: 11px; cursor: pointer; }
+.dropzone-clear:hover { color: var(--accent); }
+.dropzone-clear svg { width: 12px; height: 12px; }
 .upload-form > .primary-button { cursor: pointer; }
 .upload-progress { display: grid; gap: 8px; margin: 0 0 16px; }
 .upload-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
@@ -432,6 +450,13 @@ img { display: block; max-width: 100%; }
 .status-pill.featured { border-color: var(--accent); color: var(--accent); }
 .managed-issue-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 .managed-issue-actions .secondary-button { min-height: 40px; }
+.upload-parse-status { color: var(--muted); font-size: 11px; }
+.managed-issue-summary { margin-top: 14px; border-left: 2px solid var(--accent); padding: 4px 0 4px 14px; }
+.managed-issue .managed-issue-summary p { margin: 6px 0 0; color: var(--ink); font-size: 13px; line-height: 1.6; }
+.managed-issue .managed-issue-summary p.managed-issue-note { color: var(--muted); font-size: 12px; }
+.managed-issue-summary-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.managed-issue-summary-actions .secondary-button { min-height: 36px; }
+.managed-issue-summary-actions small, .managed-issue-summary-actions .managed-issue-note { color: var(--muted); font-size: 11px; }
 .issue-article-editor { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 12px; }
 .issue-article-editor summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
 .issue-article-editor .admin-field { margin-block: 12px; }
@@ -606,6 +631,20 @@ img { display: block; max-width: 100%; }
 .article-kicker span { padding: 0 7px; color: var(--muted); }
 .issue-article > h1 { max-width: 18ch; margin: 17px 0 15px; font-size: clamp(42px, 5.5vw, 68px); font-weight: 400; line-height: .98; }
 .article-deck { max-width: 62ch; margin: 0 0 32px; color: var(--muted); font-size: 18px; line-height: 1.65; }
+/* "The issue in brief": the summary, laid out as the page's article. */
+.summary-article > .eyebrow { display: block; margin-bottom: 18px; font-family: Inter, sans-serif; }
+.summary-article .summary-lede { font-size: 21px; line-height: 1.7; }
+.summary-article .summary-lede::first-letter { float: left; margin: 6px 10px 0 0; color: var(--accent); font-family: 'Instrument Serif', Georgia, serif; font-size: 4.1em; line-height: .8; }
+.article-body .summary-heading { margin: 1.9em 0 .55em; padding-top: .9em; border-top: 1px solid var(--rule); font-size: 30px; }
+.summary-cta { margin-top: 2em !important; font-family: Inter, sans-serif; font-size: 14px; }
+.summary-cta a { display: inline-flex; align-items: center; gap: 8px; }
+.summary-cta svg { width: 16px; height: 16px; }
+.article-fulltext { max-width: 70ch; margin: 40px auto 0; border-top: 1px solid var(--rule); padding-top: 18px; }
+.article-fulltext > summary { color: var(--accent); font-family: Inter, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; }
+.article-fulltext .article-body { margin-top: 20px; color: #3a3b37; font-size: 16px; }
+/* Admin preview of the summary article. */
+.managed-issue-summary .summary-preview { max-height: 260px; overflow-y: auto; margin-top: 8px; padding-right: 8px; }
+.managed-issue-summary .summary-preview h5 { margin: 14px 0 2px; font-size: 17px; font-weight: 400; }
 .article-lead-image { position: relative; height: clamp(280px, 40vw, 500px); margin: 0; background: var(--cover-well); }
 .article-lead-image img { object-fit: cover; object-position: center 30%; }
 .article-lead-image figcaption { position: absolute; right: 0; bottom: 0; padding: 9px 12px; background: #20211fcc; color: #fff; font-size: 10px; letter-spacing: .5px; }
@@ -753,4 +792,6 @@ img { display: block; max-width: 100%; }
 
 /* Show original magazine art without duplicate overlays or dark vignette. */
 .cover-art-authentic::after { display: none !important; }
-.cover-art-authentic img { object-fit: contain !important; }
+/* Fill the 3:4 frame so covers of any shape line up without grey letterbox bands;
+   anchor to the top so a magazine masthead is never the part that is cropped. */
+.cover-art-authentic img { object-fit: cover !important; object-position: center top; }

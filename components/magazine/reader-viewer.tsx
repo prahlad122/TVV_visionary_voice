@@ -23,12 +23,17 @@ function flattenOutline(items: OutlineNode[], depth = 0): OutlineRow[] {
 }
 
 export function MagazineReader({ issue }: { issue: Issue }) {
+  const images = issue.pages?.length ? issue.pages : undefined
+  // With pre-rendered page images the reader never needs the PDF to show pages.
+  // It is opened only for the table of contents or search, and only when asked.
+  const [pdfWanted, setPdfWanted] = useState(!images)
   const { data: pdf, isLoading, error: pdfError } = useSWR<ReaderPdf, Error>(
-    issue.fileUrl ?? null,
-    (url) => pdfjs.getDocument({ url, withCredentials: true, ...LARGE_PDF_OPTIONS }).promise,
+    pdfWanted ? issue.fileUrl ?? null : null,
+    (url: string) => pdfjs.getDocument({ url, withCredentials: true, ...LARGE_PDF_OPTIONS }).promise,
     { revalidateOnFocus: false, revalidateOnReconnect: false, shouldRetryOnError: false },
   )
-  const [pageCount, setPageCount] = useState(1)
+  const [pdfPageCount, setPdfPageCount] = useState(1)
+  const pageCount = images ? images.length : pdfPageCount
   const [currentPage, setCurrentPage] = useState(1)
   const [zoom, setZoom] = useState(100)
   const [isMobile, setIsMobile] = useState(false)
@@ -38,8 +43,13 @@ export function MagazineReader({ issue }: { issue: Issue }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchStatus, setSearchStatus] = useState('')
   const [shareStatus, setShareStatus] = useState('')
-  const loading = Boolean(issue.fileUrl) && isLoading
+  const loading = !images && Boolean(issue.fileUrl) && isLoading
   const loadError = pdfError ? 'This e-copy could not be opened. Please try again or return to the magazine archive.' : ''
+
+  // Contents and search read the PDF; open it the first time either panel is used.
+  useEffect(() => {
+    if (panel === 'contents' || panel === 'search') setPdfWanted(true)
+  }, [panel])
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)')
@@ -51,12 +61,18 @@ export function MagazineReader({ issue }: { issue: Issue }) {
 
   useEffect(() => {
     if (!pdf) return
-    setPageCount(pdf.numPages)
-    setCurrentPage(1)
+    setPdfPageCount(pdf.numPages)
+    // In image mode the reader may already be mid-issue when the PDF opens for search.
+    if (!images) setCurrentPage(1)
     pdf.getOutline().then((items) => {
       if (items) setOutline(flattenOutline(items as OutlineNode[]))
     }).catch(() => setOutline([]))
-  }, [pdf])
+  }, [pdf, images])
+
+  // Keep the page within the issue once the real page count is known.
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(Math.max(1, pageCount))
+  }, [currentPage, pageCount])
 
   const progress = useMemo(() => pageCount ? Math.round((currentPage / pageCount) * 100) : 0, [currentPage, pageCount])
   function goToPage(pageNumber: number) {
@@ -124,14 +140,14 @@ export function MagazineReader({ issue }: { issue: Issue }) {
     <div className="reader-shell" id="magazine-reader">
       <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} />
       <main className={`reader-main${pdf ? ' has-book' : ''}`}>
-        {pdf ? (
-          <BookViewer pdf={pdf} page={currentPage} zoom={zoom} singlePage={isMobile} onPageChange={turnTo} />
+        {images || pdf ? (
+          <BookViewer images={images} pdf={pdf} page={currentPage} zoom={zoom} singlePage={isMobile} onPageChange={turnTo} />
         ) : (
           <ReaderPreview issue={issue} loading={loading} error={loadError} />
         )}
         {panel && <ReaderPanel panel={panel} issue={issue} outline={outline} bookmarks={bookmarks} currentPage={currentPage} isBookmarked={bookmarks.includes(currentPage)} pdf={pdf ?? null} searchTerm={searchTerm} searchStatus={searchStatus} onClose={() => setPanel(null)} onJump={goToPage} onBookmark={toggleBookmark} onSearchChange={setSearchTerm} onSearchSubmit={searchPdf} onSearchKeyDown={handleSearchKeyDown} />}
       </main>
-      <DesktopToolbar issue={issue} currentPage={currentPage} pageCount={pageCount} zoom={zoom} hasPdf={Boolean(pdf)} isBookmarked={bookmarks.includes(currentPage)} shareStatus={shareStatus} onPageChange={goToPage} onZoomChange={setZoom} onTogglePanel={setPanel} onBookmark={toggleBookmark} onFullscreen={toggleFullscreen} onShare={shareIssue} />
+      <DesktopToolbar issue={issue} currentPage={currentPage} pageCount={pageCount} zoom={zoom} hasPdf={Boolean(issue.fileUrl && (images || pdf))} isBookmarked={bookmarks.includes(currentPage)} shareStatus={shareStatus} onPageChange={goToPage} onZoomChange={setZoom} onTogglePanel={setPanel} onBookmark={toggleBookmark} onFullscreen={toggleFullscreen} onShare={shareIssue} />
       <MobileToolbar currentPage={currentPage} pageCount={pageCount} progress={progress} isBookmarked={bookmarks.includes(currentPage)} onTogglePanel={setPanel} onBookmark={toggleBookmark} />
     </div>
   )
@@ -223,7 +239,7 @@ function ReaderPanel({ panel, issue, outline, bookmarks, currentPage, isBookmark
     <button className="reader-panel-backdrop" onClick={onClose} aria-label="Close reader panel" />
     <aside className="reader-panel" role="dialog" aria-modal="true" aria-label={panel === 'contents' ? 'Table of contents' : panel === 'bookmarks' ? 'Bookmarks' : 'Search issue'}>
       <div className="reader-panel-heading"><div><span className="eyebrow">{panel === 'contents' ? 'Issue navigation' : panel === 'bookmarks' ? 'Saved pages' : 'Find in issue'}</span><h2 className="editorial">{panel === 'contents' ? 'Contents' : panel === 'bookmarks' ? 'Bookmarks' : 'Search this issue'}</h2></div><button type="button" onClick={onClose} aria-label="Close panel"><X aria-hidden="true" /></button></div>
-      {panel === 'contents' && (outline.length ? <nav className="reader-outline" aria-label="Issue contents">{outline.map((item, index) => <button key={`${item.title}-${index}`} type="button" style={{ paddingLeft: 16 + item.depth * 18 }} onClick={() => void jumpToOutline(item)}>{item.title}</button>)}</nav> : <p className="reader-panel-note">{pdf ? 'This e-copy does not include a table of contents.' : 'The table of contents will be available when the full e-copy is uploaded.'}</p>)}
+      {panel === 'contents' && (outline.length ? <nav className="reader-outline" aria-label="Issue contents">{outline.map((item, index) => <button key={`${item.title}-${index}`} type="button" style={{ paddingLeft: 16 + item.depth * 18 }} onClick={() => void jumpToOutline(item)}>{item.title}</button>)}</nav> : <p className="reader-panel-note">{pdf ? 'This e-copy does not include a table of contents.' : issue.fileUrl ? 'Loading the table of contents…' : 'The table of contents will be available when the full e-copy is uploaded.'}</p>)}
       {panel === 'bookmarks' && <div className="reader-bookmark-current"><span>Current position · Page {currentPage}</span><button className="secondary-button" type="button" onClick={onBookmark}>{isBookmarked ? 'Remove current bookmark' : 'Bookmark this page'}</button></div>}
       {panel === 'bookmarks' && (bookmarks.length ? <div className="reader-outline">{bookmarks.map((page) => <button key={page} type="button" onClick={() => onJump(page)}><Bookmark aria-hidden="true" /> Page {page}{page === currentPage ? ' · Current' : ''}</button>)}</div> : <p className="reader-panel-note">No saved pages yet. Use the bookmark control to save your place.</p>)}
       {panel === 'search' && <form className="reader-search-form" onSubmit={onSearchSubmit}><label htmlFor="reader-search">Search words in this edition</label><input id="reader-search" type="search" value={searchTerm} onChange={(event) => onSearchChange(event.target.value)} onKeyDown={onSearchKeyDown} placeholder="Type a name or topic" /><button className="primary-button" type="submit" disabled={!pdf}>Search</button>{searchStatus && <p role="status">{searchStatus}</p>}</form>}

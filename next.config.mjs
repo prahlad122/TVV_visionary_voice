@@ -4,6 +4,12 @@ const nextConfig = {
   // Allow access from your local network IP during development
   allowedDevOrigins: ['192.168.1.42','192.168.1.5'],
 
+  experimental: {
+    // Article text parsed from a large PDF is saved through a server action
+    // (up to 1,000,000 characters); the 1 MB default is too small for that.
+    serverActions: { bodySizeLimit: '5mb' },
+  },
+
   images: {
     
     localPatterns: [

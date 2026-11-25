@@ -1,20 +1,26 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowLeft, BookOpen, Download, ExternalLink } from 'lucide-react'
-import * as pdfjs from 'pdfjs-dist'
+import { tidyExtractedText } from '@/lib/text-tidy'
+import { SummaryArticle } from './summary-article'
 import type { Issue } from './issue-cover'
-import { LARGE_PDF_OPTIONS } from './page-image-cache'
-
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-
-type ExtractedPage = { number: number; text: string }
-type ExtractionStatus = 'loading' | 'ready' | 'empty' | 'error' | 'unreadable'
 
 function paragraphs(text: string) {
-  return text.split(/\n\s*\n/).map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  const parts = text.split(/\n\s*\n/).map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  // PDF text boxes can split one sentence across two blocks ("…expects evidence of" /
+  // "practical engineering capability."). Rejoin a block that stops mid-sentence with the
+  // next block when that one continues in lowercase.
+  const merged: string[] = []
+  for (const part of parts) {
+    const previous = merged[merged.length - 1]
+    const continues = previous && !previous.startsWith('# ') && !part.startsWith('# ')
+      && (/[,–—-]$/.test(previous) || (!/[.!?:;"”’)]$/.test(previous) && /^[\p{Ll}]/u.test(part)))
+    if (continues) merged[merged.length - 1] = `${previous} ${part}`
+    else merged.push(part)
+  }
+  return merged
 }
 
 function EditorialCopy({ text }: { text: string }) {
@@ -23,54 +29,13 @@ function EditorialCopy({ text }: { text: string }) {
     : <p key={index}>{block.replace(/\n+/g, ' ')}</p>)}</>
 }
 
+/**
+ * Shows the article text stored when the issue was uploaded, so the page opens
+ * instantly. It never downloads the PDF: issues without stored text point
+ * readers to the magazine view instead.
+ */
 export function ArticleReader({ issue }: { issue: Issue }) {
-  const [pages, setPages] = useState<ExtractedPage[]>([])
-  const [status, setStatus] = useState<ExtractionStatus>(issue.articleText?.trim() ? 'ready' : issue.fileUrl ? 'loading' : 'empty')
-
-  useEffect(() => {
-    if (issue.articleText?.trim() || !issue.fileUrl) return
-    let cancelled = false
-    // Range-load instead of streaming the whole file in the background.
-    const task = pdfjs.getDocument({ url: issue.fileUrl, withCredentials: true, ...LARGE_PDF_OPTIONS })
-    task.promise.then(async (pdf) => {
-      const rawPages: ExtractedPage[] = []
-      for (let number = 1; number <= pdf.numPages; number += 1) {
-        if (cancelled) return
-        try {
-          const page = await pdf.getPage(number)
-          const content = await page.getTextContent()
-          let previousY: number | null = null
-          const text = content.items.map((item) => {
-            if (!('str' in item)) return ''
-            const y = item.transform[5]
-            const gap = previousY === null ? 0 : Math.abs(y - previousY)
-            const separator = gap > Math.max(12, (item.height ?? 10) * 1.45) ? '\n\n' : gap > 2 ? '\n' : ' '
-            previousY = y
-            return `${separator}${item.str}`
-          }).join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
-          if (text) rawPages.push({ number, text })
-        } catch { /* Continue extracting other pages if one page is damaged. */ }
-      }
-      if (cancelled) return
-      const rawText = rawPages.map((page) => page.text).join(' ')
-      const flagshipPdf = /ai\s*native\s*flagship\s*program/i.test(issue.title)
-        || (/AI[\s\u001D-]+NATIVE/i.test(rawText) && /FLAGSHIP\s+PROGRAM/i.test(rawText) && /FELLOWSHIP/i.test(rawText))
-      const glyphMap: Record<string, string> = {
-        '\u0002': 'r', '\u000E': 'r', '\u0010': 'r', '\u001D': '-',
-        '\u0084': '(', '\u0085': ')', '\u0093': '-', '\u009E': '-',
-      }
-      const extracted = rawPages.map((page) => ({
-        ...page,
-        text: flagshipPdf ? page.text.replace(/[\u0002\u000E\u0010\u001D\u0084\u0085\u0093\u009E]/g, (glyph) => glyphMap[glyph] ?? glyph) : page.text,
-      }))
-      const joined = extracted.map((page) => page.text).join(' ')
-      const hasUnmappedGlyph = /[\p{C}\u25A0-\u25FF]/u.test(joined)
-      setPages(hasUnmappedGlyph ? [] : extracted)
-      setStatus(hasUnmappedGlyph ? 'unreadable' : extracted.length ? 'ready' : 'empty')
-    }).catch(() => { if (!cancelled) setStatus('error') })
-    return () => { cancelled = true; void task.destroy() }
-  }, [issue.articleText, issue.fileUrl, issue.title])
-
+  const bookHref = `/read/${encodeURIComponent(issue.id)}/book`
   const ads = [
     { label: 'Explore the edition', title: issue.coverName, detail: issue.description || `Discover more perspectives in ${issue.industry}.`, image: issue.image, href: '/magazine' },
     { label: 'Stay in perspective', title: 'Ideas worth turning to.', detail: 'Meet the people and organizations shaping business.', image: '/cover-man-suit.png', href: '/about' },
@@ -84,19 +49,29 @@ export function ArticleReader({ issue }: { issue: Issue }) {
         <h1 className="editorial">{issue.title}</h1>
         <p className="article-deck">{issue.description || `A ${issue.industry.toLowerCase()} perspective from ${issue.region}.`}</p>
         <figure className="article-lead-image"><Image src={issue.image} alt={`Cover image for ${issue.title}`} fill priority sizes="(max-width: 720px) 100vw, 760px" /><figcaption>From the {issue.date} {issue.industry} edition</figcaption></figure>
-        <div className="article-byline"><span>THE VISIONARY VOICE</span><span>{issue.date}</span>{issue.fileUrl && <Link href={`/read/${encodeURIComponent(issue.id)}/book`}><BookOpen aria-hidden="true" /> Read as a magazine</Link>}{issue.fileUrl && <a href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download original PDF</a>}</div>
-        <section className="article-body" aria-label="Issue article content">
-          {issue.articleText?.trim()
-            ? <><p className="article-intro">{issue.description}</p><EditorialCopy text={issue.articleText} /></>
-            : <>
-              {status === 'loading' && <p className="article-message" role="status">Preparing article text from this PDF...</p>}
-              {status === 'error' && <p className="article-message">The PDF could not be opened. {issue.description}</p>}
-              {status === 'unreadable' && <p className="article-message">This PDF’s text encoding cannot be read reliably. Add a .txt article or paste the article copy in Admin for accessible reading.</p>}
-              {status === 'empty' && <p className="article-message">The accessible article text has not been added for this issue yet.</p>}
-              {status === 'ready' && <><p className="article-intro">{issue.description}</p>{pages.map((page) => <section className="extracted-page" key={page.number} aria-label={`Extracted page ${page.number}`}><EditorialCopy text={page.text} /></section>)}</>}
-              {!issue.fileUrl && issue.description && <p>{issue.description}</p>}
-            </>}
-        </section>
+        <div className="article-byline"><span>THE VISIONARY VOICE</span><span>{issue.date}</span>{issue.fileUrl && <Link href={bookHref}><BookOpen aria-hidden="true" /> Read as a magazine</Link>}{issue.fileUrl && <a href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download original PDF</a>}</div>
+        {/* The description is already the deck under the title, so it is not repeated here. */}
+        {issue.summary
+          ? <>
+            <section className="article-body summary-article" aria-label="The issue in brief">
+              <span className="eyebrow">The issue in brief</span>
+              <SummaryArticle summary={issue.summary} />
+              {issue.fileUrl && <p className="summary-cta"><Link className="text-link" href={bookHref}><BookOpen aria-hidden="true" /> Read the full issue as a magazine</Link></p>}
+            </section>
+            {/* Text extracted from a designed PDF is rough, so it sits behind the edited summary. */}
+            {issue.articleText?.trim() && <details className="article-fulltext">
+              <summary>Read the full text from the issue</summary>
+              <div className="article-body"><EditorialCopy text={tidyExtractedText(issue.articleText)} /></div>
+            </details>}
+          </>
+          : <section className="article-body" aria-label="Issue article content">
+            {issue.articleText?.trim()
+              ? <EditorialCopy text={tidyExtractedText(issue.articleText)} />
+              : <p className="article-message">
+                The article text for this issue is not available yet.
+                {issue.fileUrl && <> <Link className="text-link" href={bookHref}>Read the full issue as a magazine</Link>.</>}
+              </p>}
+          </section>}
         {issue.fileUrl && <a className="article-pdf-link" href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download the original issue PDF</a>}
       </article>
       <aside className="article-ad-rail" aria-label="Sponsored stories and recommendations">

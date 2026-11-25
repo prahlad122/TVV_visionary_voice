@@ -1,14 +1,21 @@
 'use client'
 
-import { type FormEvent, useMemo, useState, useTransition } from 'react'
+import { type FormEvent, useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { upload } from '@vercel/blob/client'
+import { FileText, Image as ImageIcon } from 'lucide-react'
+import { uploadToStorage } from '@/lib/upload'
+import { FileDropzone } from './file-dropzone'
+import { SummaryArticle } from '@/components/magazine/summary-article'
 import { authClient } from '@/lib/auth-client'
-import { createMagazineIssue, deleteMagazineIssue, savePageContent, updateContact, updateMagazineIssue } from '@/lib/actions/admin'
+import { createMagazineIssue, deleteMagazineIssue, regenerateIssueSummary, savePageContent, updateContact, updateMagazineIssue } from '@/lib/actions/admin'
+import type { PageImage } from '@/lib/db/schema'
+
+/** Matches the server limit in lib/actions/admin.ts; parsed PDF text can be long. */
+const MAX_ARTICLE_CHARS = 1_000_000
 
 type Contact = { id: string; name: string; email: string; company: string; source: string; sourcePage: string; referrerHost: string; status: string; notes: string; emailConsent: boolean; createdAt: string }
-type Issue = { id: string; title: string; description: string; articleText: string; industry: string; region: string; issueDate: string; coverUrl: string | null; fileUrl: string | null; fileName: string; fileSize: number; published: boolean; featured: boolean; createdAt: string }
+type Issue = { id: string; title: string; description: string; articleText: string; summary: string; summaryStatus: string; summaryModel?: string; pageImages: PageImage[]; industry: string; region: string; issueDate: string; coverUrl: string | null; fileUrl: string | null; fileName: string; fileSize: number; published: boolean; featured: boolean; createdAt: string }
 type PageRecord = { slug: string; title: string; content: Record<string, string>; published: boolean }
 type Analytics = { views: number; visitors: number; sessions: number; topSources: Array<{ source: string; medium: string; campaign: string; referrer: string; views: number }>; topPages: Array<{ path: string; views: number }>; devices: Array<{ device: string; views: number }>; recentEvents: Array<{ eventType: string; path: string; source: string; referrer: string; createdAt: string }> }
 type DashboardProps = { userId: string; email: string; contacts: Contact[]; issues: Issue[]; pages: PageRecord[]; analytics: Analytics }
@@ -27,6 +34,21 @@ export function AdminDashboard({ userId, email, contacts, issues, pages, analyti
   const [panel, setPanel] = useState<Panel>('overview')
   const [notice, setNotice] = useState('')
   const [pending, startTransition] = useTransition()
+
+  // Summaries are written in the background after a save, so the page cannot know when one
+  // finishes. While any is pending, re-read the data every few seconds so "Generating summary…"
+  // is replaced by the summary without a manual reload. Stops after six minutes (AI reading a
+  // large PDF can take a few).
+  const summaryPending = issues.some((issue) => issue.summaryStatus === 'pending')
+  useEffect(() => {
+    if (!summaryPending) return
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      if (Date.now() - startedAt > 360_000) window.clearInterval(timer)
+      else router.refresh()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [summaryPending, router])
 
   function runAction(action: () => Promise<unknown>, success: string) {
     startTransition(async () => {
@@ -135,7 +157,7 @@ function ContactCard({ contact, pending, runAction }: { contact: Contact; pendin
 function MagazinesPanel({ issues, userId, runAction }: { issues: Issue[]; userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
   return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>Provide a PDF, article text file, or pasted article. PDFs may be up to 400 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
     <div className="admin-subheading issue-list-heading"><h3 className="editorial">Your issues <span>{issues.length}</span></h3><p>Draft issues stay private until published.</p></div>
-    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} runAction={runAction} />)}</div> : <EmptyState title="No magazine issues yet" body="Start with a PDF, a text article file, or pasted article copy." />}
+    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} userId={userId} runAction={runAction} />)}</div> : <EmptyState title="No magazine issues yet" body="Start with a PDF, a text article file, or pasted article copy." />}
   </section>
 }
 
@@ -144,6 +166,7 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
   const [message, setMessage] = useState('')
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [uploadStage, setUploadStage] = useState('Uploading magazine files…')
+  const [parseStatus, setParseStatus] = useState('')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -200,33 +223,75 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       const uploaded = uploadedBytes.pdf + uploadedBytes.cover
       setUploadProgress(totalBytes ? Math.min(99, Math.floor((uploaded / totalBytes) * 100)) : 99)
     }
+    // Prepare the PDF for readers in the browser while the original uploads:
+    // read each page's text and render each page to a screen-sized image that
+    // the magazine reader shows instead of the PDF. The file is already in
+    // memory here, so nothing is downloaded and the server never parses a
+    // 300 MB file. The original PDF stays untouched as the download.
+    const title = String(data.get('title') ?? '').trim()
+    let prepareFailure = ''
+    const preparedPdf = selectedPdf
+      ? selectedPdf.arrayBuffer()
+        .then(async (buffer) => (await import('@/lib/pdf-text')).preparePdfForReaders({ data: buffer }, {
+          issueId: id,
+          userId,
+          title,
+          onProgress: setParseStatus,
+        }))
+        .catch((error: unknown) => {
+          console.error('Preparing the PDF for readers failed:', error)
+          prepareFailure = preparationErrorMessage(error)
+          return null
+        })
+      : null
+    setParseStatus(preparedPdf ? 'Preparing pages for readers…' : '')
     try {
       setUploadProgress(0)
       setUploadStage('Uploading magazine files…')
       let coverUrl = ''
       if (cover instanceof File && cover.size) {
-        const coverBlob = await upload(`magazines/${userId}/${id}/cover-${safeName(cover)}`, cover, {
-          access: 'private', handleUploadUrl: '/api/blob/upload-token',
-          clientPayload: JSON.stringify({ issueId: id, assetType: 'cover' }),
-          onUploadProgress: ({ loaded }) => reportProgress('cover', loaded),
+        coverUrl = await uploadToStorage(cover, {
+          issueId: id, assetType: 'cover', filename: `cover-${safeName(cover)}`,
+          onProgress: (loaded) => reportProgress('cover', loaded),
         })
-        coverUrl = coverBlob.pathname
       }
       let issueFileUrl: string | undefined
       if (selectedPdf) {
-        const issueBlob = await upload(`magazines/${userId}/${id}/issue-${safeName(selectedPdf)}`, selectedPdf, {
-          // Multipart splits issue PDFs of up to 400 MB into parallel, retryable parts.
-          access: 'private', handleUploadUrl: '/api/blob/upload-token', multipart: true,
-          clientPayload: JSON.stringify({ issueId: id, assetType: 'issue' }),
-          onUploadProgress: ({ loaded }) => reportProgress('pdf', loaded),
+        // R2 accepts single uploads of up to 5 GB, so even a 400 MB PDF goes up in one request.
+        issueFileUrl = await uploadToStorage(selectedPdf, {
+          issueId: id, assetType: 'issue', filename: `issue-${safeName(selectedPdf)}`,
+          onProgress: (loaded) => reportProgress('pdf', loaded),
         })
-        issueFileUrl = issueBlob.pathname
       }
       setUploadProgress(100)
+      let parseNote = ''
+      let pageImages: PageImage[] = []
+      if (preparedPdf) {
+        setUploadStage('Finishing reader pages…')
+        const prepared = await preparedPdf
+        if (!prepared) {
+          parseNote = ` ${prepareFailure || 'The reader pages could not be prepared.'} Until then the magazine view loads the PDF directly; use “Prepare for readers” on the issue to retry.`
+        } else {
+          pageImages = prepared.pageImages
+          parseNote = ` Prepared ${pageImages.length} reader pages.`
+          const parsed = prepared.text
+          if (articleText) parseNote += ' The summary is being generated.'
+          else if (!parsed.readable) parseNote += ' This PDF’s fonts do not map to readable text; paste the article text instead.'
+          else if (!parsed.text) parseNote += ' The PDF has no selectable text (it may be scanned images).'
+          else if (parsed.text.length > MAX_ARTICLE_CHARS) parseNote += ` The PDF text is longer than ${MAX_ARTICLE_CHARS.toLocaleString()} characters, so it was not saved.`
+          else {
+            articleText = parsed.text
+            parseNote += ` Parsed ${parsed.pages.length} of ${parsed.pageCount} pages of text; the summary is being generated.`
+          }
+        }
+      } else if (articleText) {
+        parseNote = ' The summary is being generated.'
+      }
+      setParseStatus('')
       setUploadStage('Saving issue details…')
       await createMagazineIssue({
         id,
-        title: String(data.get('title') ?? '').trim(),
+        title,
         description: String(data.get('description') ?? '').trim(),
         articleText,
         industry: String(data.get('industry') ?? '').trim(),
@@ -236,14 +301,16 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
         coverUrl,
         fileName: selectedPdf?.name,
         fileSize: selectedPdf?.size,
+        pageImages,
       })
       form.reset()
       setUploadProgress(null)
-      setMessage('Issue uploaded as a draft. Publish it when it is ready for readers.')
+      setMessage(`Issue uploaded as a draft.${parseNote} Publish it when it is ready for readers.`)
       runAction(async () => undefined, 'Magazine library refreshed.')
     } catch (error) {
   console.error('Magazine upload error:', error)
   setUploadProgress(null)
+  setParseStatus('')
 
   setMessage(
     error instanceof Error
@@ -264,23 +331,85 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       <label className="admin-field">Region<input name="region" maxLength={80} placeholder="Global, America…" /></label>
       <label className="admin-field wide">Description<textarea name="description" rows={3} maxLength={2000} placeholder="Short issue description" /></label>
       <p className="admin-field wide upload-source-note">Provide any one: a PDF, a .txt article, or pasted text. Article text gives readers the fastest experience.</p>
-      <label className="admin-field wide">Article text file (optional)<input name="articleFile" type="file" accept=".txt,text/plain" /><small>Files are limited to 500 KB.</small></label>
+      <FileDropzone name="pdf" label="Magazine PDF (optional)" accept="application/pdf,.pdf" hint="PDF up to 400 MB" icon={<FileText />} />
+      <FileDropzone name="cover" label="Cover image (optional)" accept="image/jpeg,image/png,image/webp" hint="JPG, PNG or WebP up to 8 MB" icon={<ImageIcon />} />
+      <FileDropzone name="articleFile" label="Article text file (optional)" accept=".txt,text/plain" hint=".txt file up to 500 KB" className="wide" />
       <label className="admin-field wide">Or paste article text<textarea name="articleText" rows={10} maxLength={120000} placeholder="Paste the article text here. Use a blank line between paragraphs. Lines starting with # become section headings." /><small>Up to 120,000 characters. Text files take priority if both are provided.</small></label>
-      <label className="admin-field">Magazine PDF (optional)<input name="pdf" type="file" accept="application/pdf,.pdf" /></label>
-      <label className="admin-field">Cover image (optional)<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" /></label>
     </div>
     {message && <p className="form-message" role="status">{message}</p>}
     {busy && uploadProgress !== null && <div className="upload-progress" role="status" aria-live="polite">
       <div className="upload-progress-label"><span>{uploadStage}</span><strong>{uploadProgress}%</strong></div>
       <progress max="100" value={uploadProgress} aria-label={`Magazine upload ${uploadProgress}% complete`} />
+      {parseStatus && <small className="upload-parse-status">{parseStatus}</small>}
     </div>}
     <button className="primary-button" disabled={busy}>{busy ? 'Uploading…' : 'Upload magazine'}</button>
   </form>
 }
 
-function IssueManager({ issue, runAction }: { issue: Issue; runAction: (action: () => Promise<unknown>, success: string) => void }) {
+/** Turn a preparation failure into something an editor can act on. */
+function preparationErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  if (/CORS/i.test(message)) return `${message} The bucket must allow PUT and GET from this site's address.`
+  return message ? `The PDF could not be prepared: ${message}` : 'The PDF could not be prepared.'
+}
+
+const summaryStatusLabel: Record<string, string> = {
+  pending: 'Generating summary…',
+  failed: 'The summary could not be generated.',
+}
+
+function IssueManager({ issue, userId, runAction }: { issue: Issue; userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
   const [articleText, setArticleText] = useState(issue.articleText ?? '')
-  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString()}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions">{issue.fileUrl && <a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a>}<button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div><details className="issue-article-editor"><summary>{articleText.trim() ? 'Edit article text' : 'Add article text'}</summary><label className="admin-field">Article text<textarea value={articleText} onChange={(event) => setArticleText(event.target.value)} rows={10} maxLength={120000} placeholder="Paste the article text here. Use a blank line between paragraphs; lines starting with # become section headings." /><small>{articleText.length.toLocaleString()} / 120,000 characters</small></label><button className="secondary-button" type="button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { articleText }), 'Article text saved.')}>Save article text</button></details></article>
+  const [parseStatus, setParseStatus] = useState('')
+  const [parsing, setParsing] = useState(false)
+  const pdfUrl = issue.fileUrl ? `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue` : null
+  const hasText = Boolean(issue.articleText.trim())
+  const hasPages = issue.pageImages.length > 0
+
+  // For issues uploaded before upload-time preparation existed (or to redo it):
+  // download the stored PDF once, then render its reader pages and read its text.
+  async function prepareStoredPdf() {
+    if (!pdfUrl) return
+    setParsing(true)
+    setParseStatus('Downloading PDF…')
+    try {
+      const response = await fetch(pdfUrl, { credentials: 'same-origin' })
+      if (!response.ok) {
+        const detail = await response.json().then((body: { error?: string }) => body.error).catch(() => undefined)
+        throw new Error(detail ?? `PDF request failed with ${response.status}`)
+      }
+      const buffer = await response.arrayBuffer()
+      const { preparePdfForReaders } = await import('@/lib/pdf-text')
+      const { text, pageImages } = await preparePdfForReaders({ data: buffer }, { issueId: issue.id, userId, title: issue.title, onProgress: setParseStatus })
+      const useText = !hasText && text.readable && text.text && text.text.length <= MAX_ARTICLE_CHARS
+      if (useText) setArticleText(text.text)
+      setParseStatus(!hasText && !useText ? 'Reader pages are ready, but no readable text was found. Paste the article text instead.' : '')
+      runAction(
+        () => updateMagazineIssue(issue.id, useText ? { pageImages, articleText: text.text } : { pageImages }),
+        `Prepared ${pageImages.length} reader pages${useText ? ` and ${text.pages.length} pages of text; the summary is being generated` : ''}.`,
+      )
+    } catch (error) {
+      console.error('Preparing the PDF for readers failed:', error)
+      setParseStatus(preparationErrorMessage(error))
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  const summaryBlock = <div className="managed-issue-summary">
+    <span className="eyebrow">Summary</span>
+    {issue.summary && issue.summaryStatus === 'ready' && <p className="managed-issue-note">{issue.summaryModel ? `Written by AI (${issue.summaryModel}) from the ${issue.summaryModel.startsWith('gemini') ? 'PDF' : 'extracted text'}.` : 'Built from the issue’s own sentences, because no AI model was available. Add GEMINI_API_KEY or GROQ_API_KEY, then regenerate.'}</p>}
+    {issue.summary ? <div className="summary-preview"><SummaryArticle summary={issue.summary} headingLevel={5} /></div> : <p className="managed-issue-note">{summaryStatusLabel[issue.summaryStatus] ?? (issue.articleText.trim() || pdfUrl ? 'No summary yet.' : 'Add a PDF or article text to generate a summary.')}</p>}
+    {issue.summary && issue.summaryStatus === 'pending' && <p className="managed-issue-note">Updating…</p>}
+    <div className="managed-issue-summary-actions">
+      {pdfUrl && <span className="managed-issue-note">{hasPages ? `${issue.pageImages.length} reader pages ready` : 'Reader pages not prepared: the magazine view loads the PDF directly.'}</span>}
+      {pdfUrl && (!hasPages || !hasText) && <button className="secondary-button" type="button" disabled={parsing} onClick={() => void prepareStoredPdf()}>{parsing ? 'Preparing…' : 'Prepare for readers'}</button>}
+      {(issue.articleText.trim() || pdfUrl) && issue.summaryStatus !== 'pending' && <button className="secondary-button" type="button" onClick={() => runAction(() => regenerateIssueSummary(issue.id), 'Generating a new summary.')}>{issue.summary ? 'Regenerate summary' : 'Generate summary'}</button>}
+      {parseStatus && <small role="status">{parseStatus}</small>}
+    </div>
+  </div>
+
+  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString()}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions">{issue.fileUrl && <a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a>}<button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div>{summaryBlock}<details className="issue-article-editor"><summary>{articleText.trim() ? 'Edit article text' : 'Add article text'}</summary><label className="admin-field">Article text<textarea value={articleText} onChange={(event) => setArticleText(event.target.value)} rows={10} maxLength={MAX_ARTICLE_CHARS} placeholder="Paste the article text here. Use a blank line between paragraphs; lines starting with # become section headings." /><small>{articleText.length.toLocaleString()} / {MAX_ARTICLE_CHARS.toLocaleString()} characters</small></label><button className="secondary-button" type="button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { articleText }), 'Article text saved.')}>Save article text</button></details></article>
 }
 
 function PagesPanel({ pages, pending, runAction }: { pages: PageRecord[]; pending: boolean; runAction: (action: () => Promise<unknown>, success: string) => void }) {

@@ -1,5 +1,8 @@
 import { boolean, bigint, date, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
+/** One pre-rendered page of an issue: its private R2 object key and pixel size. */
+export type PageImage = { path: string; width: number; height: number }
+
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -64,6 +67,13 @@ export const magazineIssues = pgTable('magazine_issues', {
   slug: text('slug').notNull(),
   description: text('description').notNull().default(''),
   articleText: text('articleText').notNull().default(''),
+  // Generated after the article text is saved. Status: '' (no text yet), 'pending', 'ready', 'failed'.
+  summary: text('summary').notNull().default(''),
+  summaryStatus: text('summaryStatus').notNull().default(''),
+  /** Which model wrote the summary, e.g. "gemini-3.5-flash"; empty for the built-in fallback. */
+  summaryModel: text('summaryModel').notNull().default(''),
+  // Screen-resolution WebP image of every page, rendered at upload; the reader shows these instead of the PDF.
+  pageImages: jsonb('pageImages').$type<PageImage[]>().notNull().default([]),
   industry: text('industry').notNull().default(''),
   region: text('region').notNull().default(''),
   issueDate: date('issueDate', { mode: 'string' }),

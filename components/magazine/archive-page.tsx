@@ -14,7 +14,9 @@ export function ArchivePage({ issues, copy, initialIndustry, initialRegion }: { 
   const years = ['All years', ...Array.from(new Set(issues.map((issue) => issue.date.match(/\d{4}/)?.[0]).filter((year): year is string => Boolean(year))))]
   const featuredIssue = issues.find((issue) => issue.featured) ?? issues[0]
   const featuredTimestamp = Date.parse(featuredIssue.date)
-  const featuredMonth = Number.isNaN(featuredTimestamp) ? '11' : String(new Date(featuredTimestamp).getUTCMonth() + 1).padStart(2, '0')
+  // "November 2026" parses as local midnight on the 1st, so read the month in local time too:
+  // reading it in UTC gives October for every timezone ahead of UTC (e.g. India).
+  const featuredMonth = Number.isNaN(featuredTimestamp) ? '11' : String(new Date(featuredTimestamp).getMonth() + 1).padStart(2, '0')
   const featuredYear = featuredIssue.date.match(/\d{4}/)?.[0] ?? '2026'
   const [query, setQuery] = useState('')
   const [industry, setIndustry] = useState(industries.includes(initialIndustry ?? '') ? initialIndustry! : 'All industries')
@@ -65,7 +67,7 @@ export function ArchivePage({ issues, copy, initialIndustry, initialRegion }: { 
           <section className="featured-issue" aria-labelledby="featured-title">
             <div className="featured-topline"><span className="eyebrow">In focus / The current issue</span><span className="issue-number mobile-issue-number"><strong className="editorial">{featuredMonth}</strong><span>{featuredYear}</span></span></div>
             <div className="featured-cover-well cover-well"><IssueCover issue={featuredIssue} className="featured-cover" /></div>
-            <div className="featured-copy"><h2 className="editorial" id="featured-title">{copy.featuredTitle}</h2><p>{copy.featuredDescription}</p><p className="muted" style={{ fontSize: 12 }}>{featuredIssue.date}&nbsp;&nbsp; / &nbsp;&nbsp;Digital edition</p><Link className="text-link" href={issueReaderHref(featuredIssue)}>Read the issue <span aria-hidden="true">↗</span></Link></div>
+            <div className="featured-copy"><h2 className="editorial" id="featured-title">{featuredIssue.title}</h2><p>{featuredIssue.description || copy.featuredDescription}</p><p className="muted" style={{ fontSize: 12 }}>{featuredIssue.date}&nbsp;&nbsp; / &nbsp;&nbsp;Digital edition</p><Link className="text-link" href={issueReaderHref(featuredIssue)}>Read the issue <span aria-hidden="true">↗</span></Link></div>
             <div className="issue-number desktop-issue-number"><strong className="editorial">{featuredMonth}</strong><span>{featuredYear}</span></div>
           </section>
         </section>

@@ -1,11 +1,17 @@
 import Image from 'next/image'
 
+export type ReaderPageImage = { url: string; width: number; height: number }
+
 export type Issue = {
   id: string
   fileUrl?: string
   featured?: boolean
   description?: string
   articleText?: string
+  /** Generated from the article text when the issue is saved. */
+  summary?: string
+  /** Pre-rendered page images for the magazine reader; when present the reader never loads the PDF. */
+  pages?: ReaderPageImage[]
   title: string
   date: string
   region: string

@@ -2,6 +2,7 @@
 
 import { type MouseEvent as ReactMouseEvent, type TouchEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import type { ReaderPageImage } from './issue-cover'
 import { MAX_RENDER_WIDTH, PageImageCache, type PageJob, type ReaderPdf } from './page-image-cache'
 
 type Direction = 'next' | 'prev'
@@ -49,8 +50,13 @@ function usePrefersReducedMotion() {
   return reduced
 }
 
-export function BookViewer({ pdf, page, zoom, singlePage, onPageChange }: {
-  pdf: ReaderPdf
+/**
+ * Pages come from `images` (pre-rendered at upload: plain image requests, nothing
+ * to decode) when the issue has them, otherwise they are rendered from `pdf`.
+ */
+export function BookViewer({ pdf, images, page, zoom, singlePage, onPageChange }: {
+  pdf?: ReaderPdf | null
+  images?: ReaderPageImage[]
   page: number
   zoom: number
   singlePage: boolean
@@ -64,7 +70,8 @@ export function BookViewer({ pdf, page, zoom, singlePage, onPageChange }: {
   const [cache, setCache] = useState<PageImageCache | null>(null)
   const reducedMotion = usePrefersReducedMotion()
 
-  const pageCount = pdf.numPages
+  const imageMode = Boolean(images?.length)
+  const pageCount = imageMode ? images!.length : pdf?.numPages ?? 0
   const single = singlePage
   const spread = spreadOf(Math.min(page, pageCount), single)
   const firstSpread = single ? 1 : 0
@@ -78,20 +85,27 @@ export function BookViewer({ pdf, page, zoom, singlePage, onPageChange }: {
   // One render cache per document. Created in an effect so React Strict Mode's
   // mount/unmount/mount cycle never leaves a destroyed cache in use.
   useEffect(() => {
+    if (!pdf || imageMode) return
     const next = new PageImageCache(pdf)
     setCache(next)
-    return () => next.destroy()
-  }, [pdf])
+    return () => { next.destroy(); setCache(null) }
+  }, [pdf, imageMode])
   useSyncExternalStore(cache?.subscribe ?? noopSubscribe, cache?.getVersion ?? zeroVersion, zeroVersion)
 
+  const firstImage = images?.[0]
   useEffect(() => {
+    if (firstImage) {
+      setAspect(firstImage.width / firstImage.height)
+      return
+    }
+    if (!pdf) return
     let cancelled = false
     pdf.getPage(1).then((first) => {
       const viewport = first.getViewport({ scale: 1 })
       if (!cancelled && viewport.width > 0 && viewport.height > 0) setAspect(viewport.width / viewport.height)
     }).catch(() => undefined)
     return () => { cancelled = true }
-  }, [pdf])
+  }, [pdf, firstImage])
 
   useEffect(() => {
     const element = stageRef.current
@@ -118,15 +132,24 @@ export function BookViewer({ pdf, page, zoom, singlePage, onPageChange }: {
   // Render the visible spread first, then the next, previous and one beyond,
   // so a click flips onto pages that are already painted.
   useEffect(() => {
-    if (!cache || !renderWidth) return
-    const jobs: PageJob[] = []
+    const nearby: PageJob[] = []
     ;[spread, spread + 1, spread - 1, spread + 2].forEach((target, priority) => {
       if (target < firstSpread || target > lastSpread) return
       const { left, right } = slotsOf(target, single, pageCount)
-      for (const pageNumber of [left, right]) if (pageNumber) jobs.push({ page: pageNumber, width: renderWidth, priority })
+      for (const pageNumber of [left, right]) if (pageNumber) nearby.push({ page: pageNumber, width: renderWidth, priority })
     })
-    cache.request(jobs)
-  }, [cache, firstSpread, lastSpread, pageCount, renderWidth, single, spread])
+    if (imageMode) {
+      // Warm the browser cache (and decode) for the spreads either side, so a flip shows a ready page.
+      for (const job of nearby) {
+        if (job.priority === 0) continue
+        const preload = new Image()
+        preload.decoding = 'async'
+        preload.src = images![job.page - 1].url
+      }
+      return
+    }
+    if (cache && renderWidth) cache.request(nearby)
+  }, [cache, firstSpread, images, imageMode, lastSpread, pageCount, renderWidth, single, spread])
 
   function turn(dir: Direction) {
     if (dir === 'next' ? !canGoNext : !canGoPrev) return
@@ -183,7 +206,11 @@ export function BookViewer({ pdf, page, zoom, singlePage, onPageChange }: {
     }
   }
 
-  const image = (pageNumber: number | null) => (pageNumber && cache && renderWidth ? cache.get(pageNumber, renderWidth) : undefined)
+  const image = (pageNumber: number | null) => {
+    if (!pageNumber) return undefined
+    if (imageMode) return images![pageNumber - 1]?.url
+    return cache && renderWidth ? cache.get(pageNumber, renderWidth) : undefined
+  }
   const pagesLabel = [current.left, current.right].filter(Boolean).join(' and ')
 
   return (
