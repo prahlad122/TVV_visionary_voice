@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { AnalyticsConsent } from '@/components/analytics-consent'
+import { NavigationProgress } from '@/components/navigation-progress'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -46,6 +47,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         {children}
+        <NavigationProgress />
         <AnalyticsConsent />
       </body>
     </html>
