@@ -5,6 +5,9 @@ import { getAdminUser } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { magazineIssues } from '@/lib/db/schema'
 
+/** Same artwork lib/public-content.ts uses for issues without a cover. */
+const DEFAULT_COVER = '/cover-woman-blue.png'
+
 const notFound = () => NextResponse.json({ error: 'Not found' }, { status: 404 })
 
 export async function GET(request: NextRequest) {
@@ -40,7 +43,18 @@ export async function GET(request: NextRequest) {
   try {
     const range = asset === 'issue' ? request.headers.get('range') : null
     const result = await getObject(pathname, range)
-    if (!result) return notFound()
+    if (!result) {
+      // A cover whose file is missing from storage (e.g. one uploaded before the move to R2 and
+      // not copied over) shows the site's default artwork instead of a broken image. The bytes
+      // are served here, not redirected to, because next/image will not follow a redirect.
+      if (asset === 'cover') {
+        console.warn(`Cover file missing from storage for issue ${id}; showing the default cover.`)
+        const fallback = await fetch(new URL(DEFAULT_COVER, request.url))
+        if (!fallback.ok || !fallback.body) return notFound()
+        return new NextResponse(fallback.body, { headers: { 'Content-Type': fallback.headers.get('content-type') ?? 'image/png', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
+      }
+      return notFound()
+    }
     // Page image URLs carry a version (`v`) that changes whenever pages are re-rendered,
     // so published pages can be cached by the browser for a long time.
     const cacheControl = !issue.published

@@ -11,10 +11,11 @@ import { articleSummary } from '@/lib/text-tidy'
  * Writes "The issue in brief" for a magazine issue, once, after it is uploaded.
  * The result is stored in the database; readers never trigger a summary.
  *
- * 1. Gemini reads the issue itself: the original PDF when it is within Gemini's
- *    50 MB PDF limit, otherwise the page images rendered at upload.
- * 2. If Gemini fails, Groq (gpt-oss-120b) summarizes the text extracted from
- *    the PDF at upload; it accepts text only, so it cannot read the PDF.
+ * 1. Groq (gpt-oss-120b) summarizes the text extracted from the PDF at upload
+ *    (or pasted). It accepts text only, so it is skipped for an issue with no text.
+ * 2. If Groq fails or the issue has no text, Gemini reads the issue itself: the
+ *    original PDF when it is within Gemini's 50 MB PDF limit, otherwise the page
+ *    images rendered at upload.
  * 3. If both fail or no keys are set, an extract of the issue's own sentences.
  */
 
@@ -23,11 +24,31 @@ const GROQ_MODEL = process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b'
 const GEMINI_PDF_LIMIT = 50 * 1024 * 1024
 const GEMINI_INLINE_LIMIT = 18 * 1024 * 1024
 const GEMINI_MAX_PAGES = 1000
-// Groq's free tier allows 8,000 tokens per minute for gpt-oss-120b, counting the prompt and the
-// answer, so by default only the first ~16,000 characters (~4,000 tokens) of text are sent.
-// On a paid Groq plan, raise GROQ_MAX_CHARS (the model's context fits about 380,000).
-const GROQ_MAX_CHARS = Number(process.env.GROQ_MAX_CHARS) || 16_000
-const GROQ_MAX_OUTPUT_TOKENS = GROQ_MAX_CHARS > 16_000 ? 8192 : 3000
+// Groq writes a quick summary from the start of the issue only: the first GROQ_MAX_CHARS
+// characters (default 8,000, about 2,000 tokens) are sent and the rest is never sent. That keeps
+// each request small and fast, well inside the free tier's 8,000 tokens per minute.
+const GROQ_MAX_CHARS = Number(process.env.GROQ_MAX_CHARS) || 8_000
+const GROQ_MAX_OUTPUT_TOKENS = 1500
+
+const QUICK_SYSTEM_PROMPT = `You write a quick "issue in brief" for a business magazine on The Visionary Voice website: a short piece readers skim on the web page.
+You are given only the opening part of the issue's text. Summarize what is there; do not guess at what comes later.
+
+Format it exactly like this, in 150 to 250 words:
+- An opening paragraph of 2 or 3 sentences saying what the issue is about.
+- Then 2 or 3 sections. Put each section heading on its own line starting with "## " followed by a short heading (under 8 words), then one short paragraph.
+- Separate every paragraph and heading with a blank line.
+- Use only "## " headings and plain paragraphs: no title line, no bullet lists, bold, links or other markdown, and no preamble such as "Here is the summary".
+
+Name the people, companies and themes the text actually covers. Use only facts from the text; never invent names, numbers, quotes or claims.
+Ignore page furniture such as page numbers, running headers, ads and repeated taglines.`
+
+/** The first `limit` characters of the text, cut back to the last paragraph or sentence break. */
+function openingText(text: string, limit: number) {
+  if (text.length <= limit) return text
+  const head = text.slice(0, limit)
+  const cut = Math.max(head.lastIndexOf('\n\n'), head.lastIndexOf('. ') + 1)
+  return cut > limit * 0.6 ? head.slice(0, cut).trim() : head.trim()
+}
 
 const SYSTEM_PROMPT = `You write "The issue in brief" for a business magazine on The Visionary Voice website: a short article that readers read on the web page instead of the full issue.
 It should read like magazine journalism: tell them who and what the issue covers, the ideas and stories inside it, and why they matter.
@@ -48,7 +69,7 @@ function issueHeader(issue: IssueForSummary) {
 }
 
 /** Tidy a model's answer into the stored format, and reject answers that are too short to be the article. */
-function cleanSummary(raw: string) {
+function cleanSummary(raw: string, minWords = 80) {
   const summary = raw
     .replace(/^```[a-z]*\n?|\n?```$/g, '')
     .split('\n')
@@ -62,7 +83,7 @@ function cleanSummary(raw: string) {
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-  if (summary.split(/\s+/).length < 80) throw new Error('The summary came back too short.')
+  if (summary.split(/\s+/).length < minWords) throw new Error('The summary came back too short.')
   return summary
 }
 
@@ -147,17 +168,17 @@ async function summarizeWithGroq(issue: IssueForSummary) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
-    reasoning_effort: GROQ_MAX_CHARS > 16_000 ? 'medium' : 'low',
+    reasoning_effort: 'low',
     include_reasoning: false,
     max_completion_tokens: GROQ_MAX_OUTPUT_TOKENS,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: `${issueHeader(issue)}\n\nThe text below was extracted from the issue's PDF, so its layout may be broken.\n\n<issue_text>\n${text.slice(0, GROQ_MAX_CHARS)}\n</issue_text>\n\nWrite the issue in brief.` },
+      { role: 'system', content: QUICK_SYSTEM_PROMPT },
+      { role: 'user', content: `${issueHeader(issue)}\n\nThe text below is the opening of the issue, extracted from its PDF, so its layout may be broken.\n\n<issue_text>\n${openingText(text, GROQ_MAX_CHARS)}\n</issue_text>\n\nWrite the quick issue in brief.` },
     ],
   })
   const content = completion.choices[0]?.message?.content
   if (!content) throw new Error(`Groq returned no text (${completion.choices[0]?.finish_reason ?? 'unknown reason'}).`)
-  return cleanSummary(content)
+  return cleanSummary(content, 60)
 }
 
 /**
@@ -182,8 +203,9 @@ export async function summarizeIssue(issueId: string) {
   }
 
   const attempts: { model: string; run: () => Promise<string> }[] = []
+  // Groq first; it needs text, so an issue without any goes straight to Gemini.
+  if (process.env.GROQ_API_KEY && issue.articleText.trim()) attempts.push({ model: GROQ_MODEL, run: () => summarizeWithGroq(issue) })
   if (process.env.GEMINI_API_KEY) attempts.push({ model: GEMINI_MODEL, run: () => summarizeWithGemini(issue) })
-  if (process.env.GROQ_API_KEY) attempts.push({ model: GROQ_MODEL, run: () => summarizeWithGroq(issue) })
 
   for (const attempt of attempts) {
     try {

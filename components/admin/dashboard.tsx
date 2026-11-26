@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { FileText, Image as ImageIcon } from 'lucide-react'
 import { uploadToStorage } from '@/lib/upload'
 import { FileDropzone } from './file-dropzone'
-import { SummaryArticle } from '@/components/magazine/summary-article'
+import { SummaryPreview } from '@/components/magazine/summary-preview'
 import { authClient } from '@/lib/auth-client'
 import { createMagazineIssue, deleteMagazineIssue, regenerateIssueSummary, savePageContent, updateContact, updateMagazineIssue } from '@/lib/actions/admin'
 import type { PageImage } from '@/lib/db/schema'
@@ -18,22 +18,38 @@ type Contact = { id: string; name: string; email: string; company: string; sourc
 type Issue = { id: string; title: string; description: string; articleText: string; summary: string; summaryStatus: string; summaryModel?: string; pageImages: PageImage[]; industry: string; region: string; issueDate: string; coverUrl: string | null; fileUrl: string | null; fileName: string; fileSize: number; published: boolean; featured: boolean; createdAt: string }
 type PageRecord = { slug: string; title: string; content: Record<string, string>; published: boolean }
 type Analytics = { views: number; visitors: number; sessions: number; topSources: Array<{ source: string; medium: string; campaign: string; referrer: string; views: number }>; topPages: Array<{ path: string; views: number }>; devices: Array<{ device: string; views: number }>; recentEvents: Array<{ eventType: string; path: string; source: string; referrer: string; createdAt: string }> }
-type DashboardProps = { userId: string; email: string; contacts: Contact[]; issues: Issue[]; pages: PageRecord[]; analytics: Analytics }
-type Panel = 'overview' | 'contacts' | 'magazines' | 'pages' | 'analytics'
+type DashboardProps = { userId: string; email: string; contacts: Contact[]; issues: Issue[]; pages: PageRecord[]; analytics: Analytics; initialPanel?: string; savedIssueId?: string }
+type Panel = 'overview' | 'contacts' | 'magazines' | 'issues' | 'pages' | 'analytics'
 
 const panels: Array<{ id: Panel; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'contacts', label: 'Contacts' },
-  { id: 'magazines', label: 'Magazines' },
+  { id: 'magazines', label: 'Upload magazine' },
+  { id: 'issues', label: 'Your issues' },
   { id: 'pages', label: 'Page editor' },
   { id: 'analytics', label: 'Analytics' },
 ]
 
-export function AdminDashboard({ userId, email, contacts, issues, pages, analytics }: DashboardProps) {
+export function AdminDashboard({ userId, email, contacts, issues, pages, analytics, initialPanel, savedIssueId }: DashboardProps) {
   const router = useRouter()
-  const [panel, setPanel] = useState<Panel>('overview')
-  const [notice, setNotice] = useState('')
+  // `/admin?panel=issues` (used by the edit page) opens that tab.
+  const [panel, setPanel] = useState<Panel>(() => panels.find((item) => item.id === initialPanel)?.id ?? 'overview')
+  const savedTitle = savedIssueId ? issues.find((issue) => issue.id === savedIssueId)?.title : undefined
+  const [notice, setNotice] = useState(savedTitle ? `Changes to “${savedTitle}” saved.` : '')
   const [pending, startTransition] = useTransition()
+
+  // Drop `?saved=` from the address so a reload does not show the notice again.
+  useEffect(() => {
+    if (!savedIssueId) return
+    window.history.replaceState(null, '', '/admin?panel=issues')
+    // Notes from the save (e.g. "Prepared 40 reader pages") are handed over by the edit page.
+    try {
+      const key = `issue-saved-note:${savedIssueId}`
+      const note = window.sessionStorage.getItem(key)
+      window.sessionStorage.removeItem(key)
+      if (note && savedTitle) setNotice(`Changes to “${savedTitle}” saved. ${note}`)
+    } catch { /* Storage blocked: the plain confirmation stays. */ }
+  }, [savedIssueId, savedTitle])
 
   // Summaries are written in the background after a save, so the page cannot know when one
   // finishes. While any is pending, re-read the data every few seconds so "Generating summary…"
@@ -81,7 +97,8 @@ export function AdminDashboard({ userId, email, contacts, issues, pages, analyti
         {notice && <p className="admin-notice" role="status">{notice}</p>}
         {panel === 'overview' && <Overview contacts={contacts} issues={issues} analytics={analytics} onNavigate={setPanel} />}
         {panel === 'contacts' && <ContactsPanel contacts={contacts} pending={pending} runAction={runAction} />}
-        {panel === 'magazines' && <MagazinesPanel issues={issues} userId={userId} runAction={runAction} />}
+        {panel === 'magazines' && <MagazinesPanel issueCount={issues.length} userId={userId} runAction={runAction} onNavigate={setPanel} />}
+        {panel === 'issues' && <IssuesPanel issues={issues} userId={userId} runAction={runAction} onNavigate={setPanel} />}
         {panel === 'pages' && <PagesPanel pages={pages} pending={pending} runAction={runAction} />}
         {panel === 'analytics' && <AnalyticsPanel analytics={analytics} />}
       </div>
@@ -154,16 +171,24 @@ function ContactCard({ contact, pending, runAction }: { contact: Contact; pendin
   return <article className="contact-card"><div className="contact-main"><div><h3>{contact.name}</h3><a href={`mailto:${contact.email}`}>{contact.email}</a><p>{contact.company || 'Independent'} · {contact.source} · {contact.sourcePage}</p><small>{contact.referrerHost || 'Direct visit'} · {new Date(contact.createdAt).toLocaleDateString()}</small></div><label className="admin-field compact">Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="new">New</option><option value="contacted">Contacted</option><option value="qualified">Qualified</option><option value="archived">Archived</option></select></label></div><label className="admin-field">CRM notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} maxLength={3000} placeholder="Add a private follow-up note" /></label><div className="contact-card-footer"><span>{contact.emailConsent ? 'Email consent recorded' : 'No marketing consent'}</span><button className="secondary-button" disabled={pending} onClick={() => runAction(() => updateContact(contact.id, { status, notes }), 'Contact updated.')}>Save contact</button></div></article>
 }
 
-function MagazinesPanel({ issues, userId, runAction }: { issues: Issue[]; userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
-  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload and manage issues</h2></div><p>Provide a PDF, article text file, or pasted article. PDFs may be up to 400 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} />
-    <div className="admin-subheading issue-list-heading"><h3 className="editorial">Your issues <span>{issues.length}</span></h3><p>Draft issues stay private until published.</p></div>
-    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} userId={userId} runAction={runAction} />)}</div> : <EmptyState title="No magazine issues yet" body="Start with a PDF, a text article file, or pasted article copy." />}
+type RunAction = (action: () => Promise<unknown>, success: string) => void
+
+function MagazinesPanel({ issueCount, userId, runAction, onNavigate }: { issueCount: number; userId: string; runAction: RunAction; onNavigate: (panel: Panel) => void }) {
+  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Upload a new issue</h2></div><p>Provide a PDF, article text file, or pasted article. PDFs may be up to 400 MB.</p></div><UploadIssueForm userId={userId} runAction={runAction} onNavigate={onNavigate} />
+    {issueCount > 0 && <p className="issue-library-link">{issueCount} {issueCount === 1 ? 'issue' : 'issues'} uploaded so far. <button className="text-link" type="button" onClick={() => onNavigate('issues')}>Open your issues <span aria-hidden="true">→</span></button></p>}
   </section>
 }
 
-function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (action: () => Promise<unknown>, success: string) => void }) {
+function IssuesPanel({ issues, userId, runAction, onNavigate }: { issues: Issue[]; userId: string; runAction: RunAction; onNavigate: (panel: Panel) => void }) {
+  return <section className="admin-panel"><div className="admin-panel-heading"><div><span className="eyebrow">Publication library</span><h2 className="editorial">Your issues <span className="issue-count">{issues.length}</span></h2></div><p>Draft issues stay private until published. Open an issue’s summary to read it.</p></div>
+    {issues.length ? <div className="managed-issues">{issues.map((issue) => <IssueManager key={issue.id} issue={issue} userId={userId} runAction={runAction} />)}</div> : <div className="empty-state"><h3 className="editorial">No magazine issues yet</h3><p>Start with a PDF, a text article file, or pasted article copy.</p><button className="primary-button" type="button" onClick={() => onNavigate('magazines')}>Upload a magazine</button></div>}
+  </section>
+}
+
+function UploadIssueForm({ userId, runAction, onNavigate }: { userId: string; runAction: RunAction; onNavigate: (panel: Panel) => void }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [uploaded, setUploaded] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [uploadStage, setUploadStage] = useState('Uploading magazine files…')
   const [parseStatus, setParseStatus] = useState('')
@@ -172,6 +197,7 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
     event.preventDefault()
     setBusy(true)
     setMessage('')
+    setUploaded(false)
     const form = event.currentTarget
     const data = new FormData(form)
     const pdf = data.get('pdf')
@@ -218,10 +244,17 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
     const safeName = (file: File) => file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-100)
     const totalBytes = (selectedPdf?.size ?? 0) + (cover instanceof File ? cover.size : 0)
     const uploadedBytes = { pdf: 0, cover: 0 }
+    // The bar covers the whole job: the files' bytes and, for a PDF, every reader page image.
+    // Each counts for half, so it cannot reach 100% while pages are still uploading.
+    const pages = { done: 0, total: 0 }
+    const updateProgress = () => {
+      const files = totalBytes ? (uploadedBytes.pdf + uploadedBytes.cover) / totalBytes : 1
+      const done = selectedPdf ? (files + (pages.total ? pages.done / pages.total : 0)) / 2 : files
+      setUploadProgress(Math.min(99, Math.floor(done * 100)))
+    }
     const reportProgress = (asset: keyof typeof uploadedBytes, loaded: number) => {
       uploadedBytes[asset] = Math.max(uploadedBytes[asset], loaded)
-      const uploaded = uploadedBytes.pdf + uploadedBytes.cover
-      setUploadProgress(totalBytes ? Math.min(99, Math.floor((uploaded / totalBytes) * 100)) : 99)
+      updateProgress()
     }
     // Prepare the PDF for readers in the browser while the original uploads:
     // read each page's text and render each page to a screen-sized image that
@@ -237,6 +270,7 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
           userId,
           title,
           onProgress: setParseStatus,
+          onPagesDone: (done, total) => { pages.done = done; pages.total = total; updateProgress() },
         }))
         .catch((error: unknown) => {
           console.error('Preparing the PDF for readers failed:', error)
@@ -263,11 +297,10 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
           onProgress: (loaded) => reportProgress('pdf', loaded),
         })
       }
-      setUploadProgress(100)
       let parseNote = ''
       let pageImages: PageImage[] = []
       if (preparedPdf) {
-        setUploadStage('Finishing reader pages…')
+        setUploadStage('Uploading reader pages…')
         const prepared = await preparedPdf
         if (!prepared) {
           parseNote = ` ${prepareFailure || 'The reader pages could not be prepared.'} Until then the magazine view loads the PDF directly; use “Prepare for readers” on the issue to retry.`
@@ -275,19 +308,21 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
           pageImages = prepared.pageImages
           parseNote = ` Prepared ${pageImages.length} reader pages.`
           const parsed = prepared.text
+          // Without readable text the AI still writes the summary: Gemini reads the PDF itself.
+          const fromPdf = ' The AI summary is being written from the PDF itself.'
           if (articleText) parseNote += ' The summary is being generated.'
-          else if (!parsed.readable) parseNote += ' This PDF’s fonts do not map to readable text; paste the article text instead.'
-          else if (!parsed.text) parseNote += ' The PDF has no selectable text (it may be scanned images).'
-          else if (parsed.text.length > MAX_ARTICLE_CHARS) parseNote += ` The PDF text is longer than ${MAX_ARTICLE_CHARS.toLocaleString()} characters, so it was not saved.`
+          else if (!parsed.text) parseNote += ` No readable text was found (the PDF ${parsed.readable ? 'may be scanned images' : 'uses fonts that do not map to letters'}).${fromPdf}`
+          else if (parsed.text.length > MAX_ARTICLE_CHARS) parseNote += ` The PDF text is longer than ${MAX_ARTICLE_CHARS.toLocaleString('en-US')} characters, so it was not saved.${fromPdf}`
           else {
             articleText = parsed.text
-            parseNote += ` Parsed ${parsed.pages.length} of ${parsed.pageCount} pages of text; the summary is being generated.`
+            parseNote += ` Read the text of ${parsed.pages.length} of ${parsed.pageCount} pages${parsed.unreadablePages ? ` (${parsed.unreadablePages} had unreadable fonts and were skipped)` : ''}; the summary is being generated.`
           }
         }
       } else if (articleText) {
         parseNote = ' The summary is being generated.'
       }
       setParseStatus('')
+      setUploadProgress(100)
       setUploadStage('Saving issue details…')
       await createMagazineIssue({
         id,
@@ -306,6 +341,7 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       form.reset()
       setUploadProgress(null)
       setMessage(`Issue uploaded as a draft.${parseNote} Publish it when it is ready for readers.`)
+      setUploaded(true)
       runAction(async () => undefined, 'Magazine library refreshed.')
     } catch (error) {
   console.error('Magazine upload error:', error)
@@ -336,7 +372,7 @@ function UploadIssueForm({ userId, runAction }: { userId: string; runAction: (ac
       <FileDropzone name="articleFile" label="Article text file (optional)" accept=".txt,text/plain" hint=".txt file up to 500 KB" className="wide" />
       <label className="admin-field wide">Or paste article text<textarea name="articleText" rows={10} maxLength={120000} placeholder="Paste the article text here. Use a blank line between paragraphs. Lines starting with # become section headings." /><small>Up to 120,000 characters. Text files take priority if both are provided.</small></label>
     </div>
-    {message && <p className="form-message" role="status">{message}</p>}
+    {message && <p className="form-message" role="status">{message}{uploaded && <> <button className="text-link" type="button" onClick={() => onNavigate('issues')}>See it in Your issues <span aria-hidden="true">→</span></button></>}</p>}
     {busy && uploadProgress !== null && <div className="upload-progress" role="status" aria-live="polite">
       <div className="upload-progress-label"><span>{uploadStage}</span><strong>{uploadProgress}%</strong></div>
       <progress max="100" value={uploadProgress} aria-label={`Magazine upload ${uploadProgress}% complete`} />
@@ -383,7 +419,7 @@ function IssueManager({ issue, userId, runAction }: { issue: Issue; userId: stri
       const { text, pageImages } = await preparePdfForReaders({ data: buffer }, { issueId: issue.id, userId, title: issue.title, onProgress: setParseStatus })
       const useText = !hasText && text.readable && text.text && text.text.length <= MAX_ARTICLE_CHARS
       if (useText) setArticleText(text.text)
-      setParseStatus(!hasText && !useText ? 'Reader pages are ready, but no readable text was found. Paste the article text instead.' : '')
+      setParseStatus(!hasText && !useText ? 'Reader pages are ready. No readable text was found, so the AI summary is written from the PDF itself.' : '')
       runAction(
         () => updateMagazineIssue(issue.id, useText ? { pageImages, articleText: text.text } : { pageImages }),
         `Prepared ${pageImages.length} reader pages${useText ? ` and ${text.pages.length} pages of text; the summary is being generated` : ''}.`,
@@ -396,20 +432,26 @@ function IssueManager({ issue, userId, runAction }: { issue: Issue; userId: stri
     }
   }
 
-  const summaryBlock = <div className="managed-issue-summary">
-    <span className="eyebrow">Summary</span>
-    {issue.summary && issue.summaryStatus === 'ready' && <p className="managed-issue-note">{issue.summaryModel ? `Written by AI (${issue.summaryModel}) from the ${issue.summaryModel.startsWith('gemini') ? 'PDF' : 'extracted text'}.` : 'Built from the issue’s own sentences, because no AI model was available. Add GEMINI_API_KEY or GROQ_API_KEY, then regenerate.'}</p>}
-    {issue.summary ? <div className="summary-preview"><SummaryArticle summary={issue.summary} headingLevel={5} /></div> : <p className="managed-issue-note">{summaryStatusLabel[issue.summaryStatus] ?? (issue.articleText.trim() || pdfUrl ? 'No summary yet.' : 'Add a PDF or article text to generate a summary.')}</p>}
-    {issue.summary && issue.summaryStatus === 'pending' && <p className="managed-issue-note">Updating…</p>}
-    <div className="managed-issue-summary-actions">
+  const summaryState = issue.summaryStatus === 'pending' ? 'generating…' : issue.summary ? 'ready' : issue.summaryStatus === 'failed' ? 'failed' : 'none yet'
+  const summaryNote = issue.summary && issue.summaryStatus === 'ready'
+    ? <p className="managed-issue-note">{issue.summaryModel === 'edited' ? 'Edited by hand.' : issue.summaryModel ? `Written by AI (${issue.summaryModel}) from the ${issue.summaryModel.startsWith('gemini') ? 'PDF' : 'extracted text'}.` : 'Built from the issue’s own sentences, because no AI model was available. Add GEMINI_API_KEY or GROQ_API_KEY, then regenerate.'}</p>
+    : null
+  const summaryActions = <div className="managed-issue-summary-actions">
       {pdfUrl && <span className="managed-issue-note">{hasPages ? `${issue.pageImages.length} reader pages ready` : 'Reader pages not prepared: the magazine view loads the PDF directly.'}</span>}
       {pdfUrl && (!hasPages || !hasText) && <button className="secondary-button" type="button" disabled={parsing} onClick={() => void prepareStoredPdf()}>{parsing ? 'Preparing…' : 'Prepare for readers'}</button>}
       {(issue.articleText.trim() || pdfUrl) && issue.summaryStatus !== 'pending' && <button className="secondary-button" type="button" onClick={() => runAction(() => regenerateIssueSummary(issue.id), 'Generating a new summary.')}>{issue.summary ? 'Regenerate summary' : 'Generate summary'}</button>}
       {parseStatus && <small role="status">{parseStatus}</small>}
     </div>
+  // A two-line preview keeps the list short; "Read the full summary" opens the rest, with
+  // where it came from and the summary actions.
+  const summaryBlock = <div className="managed-issue-summary">
+    <div className="managed-issue-summary-head"><span className="eyebrow">Summary</span><span className={`summary-state is-${issue.summaryStatus || 'none'}`}>{summaryState}</span></div>
+    {issue.summary
+      ? <SummaryPreview summary={issue.summary} headingLevel={5} lines={2} moreLabel="Read the full summary">{summaryNote}{summaryActions}</SummaryPreview>
+      : <><p className="managed-issue-note">{summaryStatusLabel[issue.summaryStatus] ?? (issue.articleText.trim() || pdfUrl ? 'No summary yet.' : 'Add a PDF or article text to generate a summary.')}</p>{summaryActions}</>}
   </div>
 
-  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString()}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions">{issue.fileUrl && <a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a>}<button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div>{summaryBlock}<details className="issue-article-editor"><summary>{articleText.trim() ? 'Edit article text' : 'Add article text'}</summary><label className="admin-field">Article text<textarea value={articleText} onChange={(event) => setArticleText(event.target.value)} rows={10} maxLength={MAX_ARTICLE_CHARS} placeholder="Paste the article text here. Use a blank line between paragraphs; lines starting with # become section headings." /><small>{articleText.length.toLocaleString()} / {MAX_ARTICLE_CHARS.toLocaleString()} characters</small></label><button className="secondary-button" type="button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { articleText }), 'Article text saved.')}>Save article text</button></details></article>
+  return <article className="managed-issue"><div className="managed-issue-copy"><div><h4 className="editorial">{issue.title}</h4><p>{issue.industry || 'Business'} · {issue.region || 'Global'} · {issue.issueDate || new Date(issue.createdAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}</p><span className={issue.published ? 'status-pill published' : 'status-pill'}>{issue.published ? 'Published' : 'Draft'}</span>{issue.featured && <span className="status-pill featured">Featured</span>}</div><div className="managed-issue-actions"><Link className="primary-button" href={`/admin/issues/${encodeURIComponent(issue.id)}/edit`}>Edit</Link>{issue.published ? <a className="text-link" href={`/read/${encodeURIComponent(issue.id)}`} target="_blank" rel="noreferrer">View <span aria-hidden="true">↗</span></a> : <span className="managed-issue-note" title="Readers can open it once it is published">Not live yet</span>}{issue.fileUrl && <a className="text-link" href={`/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue`} target="_blank" rel="noreferrer">Preview PDF <span aria-hidden="true">↗</span></a>}<button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { published: !issue.published }), issue.published ? 'Issue unpublished.' : 'Issue published.')}>{issue.published ? 'Unpublish' : 'Publish'}</button><button className="secondary-button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { featured: !issue.featured }), issue.featured ? 'Featured issue cleared.' : 'Issue set as featured.')}>{issue.featured ? 'Remove featured' : 'Feature issue'}</button><button className="text-danger" onClick={() => { if (window.confirm('Delete this issue and its uploaded files?')) runAction(() => deleteMagazineIssue(issue.id), 'Issue deleted.') }}>Delete</button></div></div>{summaryBlock}<details className="issue-article-editor"><summary>{articleText.trim() ? 'Edit article text' : 'Add article text'}</summary><label className="admin-field">Article text<textarea value={articleText} onChange={(event) => setArticleText(event.target.value)} rows={10} maxLength={MAX_ARTICLE_CHARS} placeholder="Paste the article text here. Use a blank line between paragraphs; lines starting with # become section headings." /><small>{articleText.length.toLocaleString('en-US')} / {MAX_ARTICLE_CHARS.toLocaleString('en-US')} characters</small></label><button className="secondary-button" type="button" onClick={() => runAction(() => updateMagazineIssue(issue.id, { articleText }), 'Article text saved.')}>Save article text</button></details></article>
 }
 
 function PagesPanel({ pages, pending, runAction }: { pages: PageRecord[]; pending: boolean; runAction: (action: () => Promise<unknown>, success: string) => void }) {

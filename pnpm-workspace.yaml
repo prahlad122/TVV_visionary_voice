@@ -18,3 +18,9 @@ minimumReleaseAgeExclude:
   - '@aws-sdk/nested-clients@3.998.5'
   - '@aws-sdk/s3-request-presigner@3.1177.0'
   - '@aws-sdk/token-providers@3.1177.0'
+
+# pnpm only runs install scripts for packages listed here. protobufjs (used by @google/genai)
+# has a postinstall that only prints a version notice, so it is skipped. Without an entry for
+# it, `pnpm install` fails on Vercel with ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  protobufjs: false

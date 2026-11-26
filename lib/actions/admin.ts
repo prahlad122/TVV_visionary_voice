@@ -152,19 +152,19 @@ export async function createMagazineIssue(input: {
 }
 
 /**
- * Delete page images uploaded by a preparation run that then failed (for example when
- * storage is full), so they do not keep using storage. Only this admin's uploads
- * for this issue are deleted, and never a page the issue currently uses.
+ * Delete files uploaded by a run that then failed (a PDF preparation, or an edit whose
+ * save failed), so they do not keep using storage. Only this admin's uploads for this
+ * issue are deleted, and never a file the issue currently uses.
  */
 export async function discardPageUploads(issueId: string, paths: string[]) {
   const admin = await requireAdminAction()
-  if (!issueIdPattern.test(issueId) || !Array.isArray(paths) || paths.length > MAX_PAGES) throw new Error('Invalid cleanup request.')
-  const [issue] = await db.select({ pageImages: magazineIssues.pageImages })
+  if (!issueIdPattern.test(issueId) || !Array.isArray(paths) || paths.length > MAX_PAGES + 2) throw new Error('Invalid cleanup request.')
+  const [issue] = await db.select({ pageImages: magazineIssues.pageImages, fileUrl: magazineIssues.fileUrl, coverUrl: magazineIssues.coverUrl })
     .from(magazineIssues)
     .where(and(eq(magazineIssues.id, issueId), eq(magazineIssues.userId, admin.id)))
     .limit(1)
-  const inUse = new Set((issue?.pageImages ?? []).map((image) => image.path))
-  const removable = paths.filter((path) => typeof path === 'string' && path.startsWith(`magazines/${admin.id}/${issueId}/pages/`) && ownedStoragePath(path, admin.id, issueId) && !inUse.has(path))
+  const inUse = new Set([issue?.fileUrl, issue?.coverUrl, ...(issue?.pageImages ?? []).map((image) => image.path)])
+  const removable = paths.filter((path) => typeof path === 'string' && ownedStoragePath(path, admin.id, issueId) && !inUse.has(path))
   if (removable.length) await deleteStoredFiles(removable)
 }
 
@@ -237,6 +237,115 @@ export async function updateMagazineIssue(id: string, input: { published?: boole
   revalidatePath('/admin')
   revalidatePath('/magazine')
   revalidatePath(`/read/${id}`)
+  revalidatePath('/')
+}
+
+/** Written to `summaryModel` when an editor rewrites the summary by hand. */
+const EDITED_SUMMARY = 'edited'
+
+/**
+ * Save the "Edit magazine" page. Only the fields present in `input` change.
+ * - `coverUrl`: a new upload's key, or null to remove the cover.
+ * - `pdf`: a replacement PDF already uploaded, with its reader pages; the old PDF and pages are deleted.
+ * - `summary`: an editor's own text, which replaces the AI summary until it is regenerated.
+ */
+export async function editMagazineIssue(id: string, input: {
+  title?: string
+  description?: string
+  industry?: string
+  region?: string
+  issueDate?: string
+  published?: boolean
+  featured?: boolean
+  articleText?: string
+  summary?: string
+  coverUrl?: string | null
+  pdf?: { fileUrl: string; fileName: string; fileSize: number; pageImages: PageImage[] }
+}) {
+  const admin = await requireAdminAction()
+  if (!issueIdPattern.test(id)) throw new Error('Invalid issue.')
+  const owned = and(eq(magazineIssues.id, id), eq(magazineIssues.userId, admin.id))
+  const [current] = await db.select({
+    articleText: magazineIssues.articleText,
+    fileUrl: magazineIssues.fileUrl,
+    coverUrl: magazineIssues.coverUrl,
+    pageImages: magazineIssues.pageImages,
+    summaryModel: magazineIssues.summaryModel,
+  }).from(magazineIssues).where(owned).limit(1)
+  if (!current) throw new Error('Issue not found.')
+
+  const set: Partial<typeof magazineIssues.$inferInsert> = { updatedAt: new Date() }
+  const removedPaths: string[] = []
+
+  if (input.title !== undefined) {
+    if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 180) throw new Error('The title must be 1 to 180 characters.')
+    set.title = input.title.trim()
+  }
+  if (input.description !== undefined) set.description = String(input.description).trim().slice(0, 2000)
+  if (input.industry !== undefined) set.industry = String(input.industry).trim().slice(0, 80)
+  if (input.region !== undefined) set.region = String(input.region).trim().slice(0, 80)
+  if (input.issueDate !== undefined) {
+    if (input.issueDate && !/^\d{4}-\d{2}-\d{2}$/.test(input.issueDate)) throw new Error('Invalid issue date.')
+    set.issueDate = input.issueDate || null
+  }
+  if (input.articleText !== undefined) {
+    if (typeof input.articleText !== 'string' || input.articleText.length > MAX_ARTICLE_CHARS) throw new Error(articleLimitMessage)
+    set.articleText = input.articleText
+  }
+
+  if (input.coverUrl !== undefined) {
+    if (input.coverUrl !== null && (typeof input.coverUrl !== 'string' || !ownedStoragePath(input.coverUrl, admin.id, id))) {
+      throw new Error('The cover image is not a valid upload for this account.')
+    }
+    set.coverUrl = input.coverUrl
+    if (current.coverUrl && current.coverUrl !== input.coverUrl && ownedStoragePath(current.coverUrl, admin.id, id)) removedPaths.push(current.coverUrl)
+  }
+
+  if (input.pdf !== undefined) {
+    const { fileUrl, fileName, fileSize } = input.pdf
+    if (typeof fileUrl !== 'string' || !ownedStoragePath(fileUrl, admin.id, id)) throw new Error('The issue file is not a valid upload for this account.')
+    if (!Number.isFinite(fileSize) || fileSize < 1 || fileSize > 400 * 1024 * 1024) throw new Error('Issue file must be 400 MB or smaller.')
+    set.fileUrl = fileUrl
+    set.fileName = String(fileName ?? '').slice(0, 240)
+    set.fileSize = Math.round(fileSize)
+    set.pageImages = validPageImages(input.pdf.pageImages, admin.id, id)
+    const kept = new Set([fileUrl, ...set.pageImages.map((image) => image.path)])
+    for (const path of [current.fileUrl, ...current.pageImages.map((image) => image.path)]) {
+      if (path && !kept.has(path) && ownedStoragePath(path, admin.id, id)) removedPaths.push(path)
+    }
+  }
+
+  const fileUrl = set.fileUrl ?? current.fileUrl
+  const articleText = set.articleText ?? current.articleText
+  if (!fileUrl && !articleText.trim()) throw new Error('An issue needs a PDF or article text.')
+
+  // Summary: an editor's own text wins. Otherwise a new PDF always gets a new AI summary, and
+  // new article text does when the current summary was not written by AI or an editor.
+  if (input.summary !== undefined) {
+    if (typeof input.summary !== 'string' || input.summary.length > 20_000) throw new Error('The summary must be 20,000 characters or fewer.')
+    const summary = input.summary.trim()
+    set.summary = summary
+    set.summaryStatus = summary ? 'ready' : ''
+    set.summaryModel = summary ? EDITED_SUMMARY : ''
+  } else if (input.pdf !== undefined || (input.articleText !== undefined && input.articleText !== current.articleText && !current.summaryModel)) {
+    set.summaryStatus = 'pending'
+  }
+
+  if (input.published !== undefined) set.published = Boolean(input.published)
+  if (input.featured !== undefined) set.featured = Boolean(input.featured)
+  if (input.featured === true) {
+    await db.update(magazineIssues).set({ featured: false, updatedAt: new Date() }).where(eq(magazineIssues.userId, admin.id))
+  }
+
+  await db.update(magazineIssues).set(set).where(owned)
+  // Delete replaced files only after the issue no longer points at them.
+  if (removedPaths.length) await deleteStoredFiles(removedPaths)
+  if (set.summaryStatus === 'pending') scheduleSummary(id)
+  revalidatePath('/admin')
+  revalidatePath(`/admin/issues/${id}/edit`)
+  revalidatePath('/magazine')
+  revalidatePath(`/read/${id}`)
+  revalidatePath(`/read/${id}/book`)
   revalidatePath('/')
 }
 

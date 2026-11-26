@@ -66,7 +66,8 @@ export async function getPublishedIssues(): Promise<Issue[]> {
         date: issue.issueDate ? new Date(`${issue.issueDate}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : issue.createdAt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
         region: issue.region,
         industry: issue.industry,
-        image: issue.coverUrl ? `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=cover` : '/cover-woman-blue.png',
+        // `v` is the stored file name, so a replaced cover gets a new URL instead of a cached old image.
+        image: issue.coverUrl ? `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=cover&v=${encodeURIComponent(issue.coverUrl.split('/').pop() ?? '')}` : '/cover-woman-blue.png',
         coverLabel: issue.industry || 'Leadership edition',
         coverName: issue.title.split(/\s+/).slice(0, 4).join(' '),
         fileUrl: issue.fileUrl ? `/api/magazine-assets?id=${encodeURIComponent(issue.id)}&asset=issue` : undefined,

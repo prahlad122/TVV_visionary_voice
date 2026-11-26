@@ -18,8 +18,10 @@ export type PdfTextResult = {
   /** Pages joined with blank lines, ready to store as the issue's article text. */
   text: string
   pageCount: number
-  /** False when the PDF's fonts map to unreadable glyphs, so the text should not be shown or stored. */
+  /** False when no page has readable text because the PDF's fonts map to unreadable glyphs. */
   readable: boolean
+  /** Pages that had text, but text too garbled to keep. */
+  unreadablePages: number
 }
 
 /** Width of the reader's page images. Sharp for a two-page spread on a 1440p / retina screen, ~150–400 KB each. */
@@ -55,10 +57,19 @@ function finishText(rawPages: ExtractedPage[], pageCount: number, title = ''): P
     ...page,
     text: tidyExtractedText(flagshipPdf ? page.text.replace(/[\u0002\u000E\u0010\u001D\u0084\u0085\u0093\u009E]/g, (glyph) => flagshipGlyphMap[glyph] ?? glyph) : page.text),
   }))
-  const text = pages.map((page) => page.text).join('\n\n')
-  // Line breaks are expected; any other control character means the font's glyphs are unmapped.
-  const readable = !/[\p{C}■-◿]/u.test(text.replace(/\n/g, ''))
-  return { pages: readable ? pages : [], text: readable ? text : '', pageCount, readable }
+  // Line breaks are expected; other control characters (and box glyphs) mean a font's glyphs
+  // are unmapped. Judge each page on its own: a page with a few stray glyphs keeps its text
+  // with them removed, and a page that is mostly garbled is left out. One bad font on one page
+  // no longer throws away the text of the whole issue.
+  const kept = pages.flatMap((page) => {
+    const letters = page.text.replace(/\s/g, '').length
+    const bad = page.text.replace(/\n/g, '').match(/[\p{C}■-◿]/gu)?.length ?? 0
+    if (!letters || bad / letters > 0.02) return []
+    const clean = bad ? page.text.replace(/[^\n\P{C}]|[■-◿]/gu, '').replace(/[ \t]{2,}/g, ' ').trim() : page.text
+    return clean ? [{ ...page, text: clean }] : []
+  })
+  const text = kept.map((page) => page.text).join('\n\n')
+  return { pages: kept, text, pageCount, readable: kept.length > 0 || !pages.length, unreadablePages: pages.length - kept.length }
 }
 
 function openPdf(source: { data: ArrayBuffer } | { url: string }) {
@@ -122,7 +133,14 @@ async function renderPageImage(page: PdfPage) {
  */
 export async function preparePdfForReaders(
   source: { data: ArrayBuffer },
-  options: { issueId: string; userId: string; title?: string; onProgress?: (message: string) => void },
+  options: {
+    issueId: string
+    userId: string
+    title?: string
+    onProgress?: (message: string) => void
+    /** Called each time a page image finishes uploading, so callers can show real progress. */
+    onPagesDone?: (done: number, total: number) => void
+  },
 ): Promise<{ text: PdfTextResult; pageImages: PageImage[] }> {
   const task = openPdf(source)
   const inFlight = new Set<Promise<void>>()
@@ -133,10 +151,11 @@ export async function preparePdfForReaders(
     const total = pdf.numPages
     const rawPages: ExtractedPage[] = []
     const pageImages: PageImage[] = new Array(total)
+    options.onPagesDone?.(0, total)
 
     for (let number = 1; number <= total; number += 1) {
       if (uploadError) throw uploadError
-      options.onProgress?.(`Preparing pages for readers: ${number} of ${total}`)
+      options.onProgress?.(`Reader pages: rendering page ${number} of ${total}, ${uploadedPaths.length} uploaded`)
       const page = await pdf.getPage(number)
       try {
         try {
@@ -152,6 +171,7 @@ export async function preparePdfForReaders(
         }).then((key) => {
           uploadedPaths.push(key)
           pageImages[number - 1] = { path: key, width: image.width, height: image.height }
+          options.onPagesDone?.(uploadedPaths.length, total)
         }).catch((error: unknown) => {
           uploadError ??= error
         }).finally(() => {
@@ -163,8 +183,10 @@ export async function preparePdfForReaders(
         page.cleanup()
       }
     }
+    options.onProgress?.(`Reader pages: all ${total} rendered, ${uploadedPaths.length} uploaded`)
     await Promise.all(inFlight)
     if (uploadError) throw uploadError
+    options.onProgress?.(`Reader pages: all ${total} uploaded`)
     return { text: finishText(rawPages, total, options.title), pageImages }
   } catch (error) {
     // Don't leave a half-finished set of page images using storage.

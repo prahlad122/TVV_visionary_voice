@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowLeft, BookOpen, Download, ExternalLink } from 'lucide-react'
 import { tidyExtractedText } from '@/lib/text-tidy'
-import { SummaryArticle } from './summary-article'
+import { SummaryPreview } from './summary-preview'
 import type { Issue } from './issue-cover'
 
 function paragraphs(text: string) {
@@ -55,7 +55,7 @@ export function ArticleReader({ issue }: { issue: Issue }) {
           ? <>
             <section className="article-body summary-article" aria-label="The issue in brief">
               <span className="eyebrow">The issue in brief</span>
-              <SummaryArticle summary={issue.summary} />
+              <SummaryPreview summary={issue.summary} lines={7} />
               {issue.fileUrl && <p className="summary-cta"><Link className="text-link" href={bookHref}><BookOpen aria-hidden="true" /> Read the full issue as a magazine</Link></p>}
             </section>
             {/* Text extracted from a designed PDF is rough, so it sits behind the edited summary. */}
