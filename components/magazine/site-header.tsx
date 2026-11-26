@@ -7,6 +7,7 @@ type SiteHeaderProps = {
 const navItems = [
   { href: '/', label: 'Home', key: 'home' },
   { href: '/magazine', label: 'Magazine', key: 'magazine' },
+  { href: '/blog', label: 'Blog', key: 'blog' },
   { href: '/about', label: 'About Us', key: 'about' },
 ] as const
 

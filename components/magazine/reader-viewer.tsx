@@ -138,7 +138,7 @@ export function MagazineReader({ issue }: { issue: Issue }) {
 
   return (
     <div className="reader-shell" id="magazine-reader">
-      <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} />
+      <ReaderHeader onSearch={() => setPanel(panel === 'search' ? null : 'search')} downloadHref={issue.fileUrl ? `${issue.fileUrl}&download=1` : undefined} />
       <main className={`reader-main${pdf ? ' has-book' : ''}`}>
         {images || pdf ? (
           <BookViewer images={images} pdf={pdf} page={currentPage} zoom={zoom} singlePage={isMobile} onPageChange={turnTo} />
@@ -147,18 +147,21 @@ export function MagazineReader({ issue }: { issue: Issue }) {
         )}
         {panel && <ReaderPanel panel={panel} issue={issue} outline={outline} bookmarks={bookmarks} currentPage={currentPage} isBookmarked={bookmarks.includes(currentPage)} pdf={pdf ?? null} searchTerm={searchTerm} searchStatus={searchStatus} onClose={() => setPanel(null)} onJump={goToPage} onBookmark={toggleBookmark} onSearchChange={setSearchTerm} onSearchSubmit={searchPdf} onSearchKeyDown={handleSearchKeyDown} />}
       </main>
-      <DesktopToolbar issue={issue} currentPage={currentPage} pageCount={pageCount} zoom={zoom} hasPdf={Boolean(issue.fileUrl && (images || pdf))} isBookmarked={bookmarks.includes(currentPage)} shareStatus={shareStatus} onPageChange={goToPage} onZoomChange={setZoom} onTogglePanel={setPanel} onBookmark={toggleBookmark} onFullscreen={toggleFullscreen} onShare={shareIssue} />
+      <DesktopToolbar issue={issue} currentPage={currentPage} pageCount={pageCount} zoom={zoom} isBookmarked={bookmarks.includes(currentPage)} shareStatus={shareStatus} onPageChange={goToPage} onZoomChange={setZoom} onTogglePanel={setPanel} onBookmark={toggleBookmark} onFullscreen={toggleFullscreen} onShare={shareIssue} />
       <MobileToolbar currentPage={currentPage} pageCount={pageCount} progress={progress} isBookmarked={bookmarks.includes(currentPage)} onTogglePanel={setPanel} onBookmark={toggleBookmark} />
     </div>
   )
 }
 
-function ReaderHeader({ onSearch }: { onSearch: () => void }) {
+function ReaderHeader({ onSearch, downloadHref }: { onSearch: () => void; downloadHref?: string }) {
   return <header className="reader-header">
     <div className="reader-desktop-header">
       <Link className="wordmark" href="/" aria-label="The Visionary Voice home"><span className="wordmark-title"><span className="wordmark-the">The</span> Visionary Voice</span><span className="wordmark-tagline">THE WORLD OF BUSINESS, IN PERSPECTIVE</span></Link>
       <nav className="reader-nav" aria-label="Main navigation"><Link href="/">Home</Link><Link className="active" href="/magazine">Magazine</Link><Link href="/about">About Us</Link></nav>
-      <Link className="reader-subscribe" href="/#newsletter">Subscribe</Link>
+      <div className="header-actions">
+        {downloadHref && <a className="header-download" href={downloadHref} aria-label="Download the issue PDF"><Download aria-hidden="true" /><span>Download</span></a>}
+        <Link className="reader-subscribe" href="/#newsletter">Subscribe</Link>
+      </div>
     </div>
     <div className="reader-mobile-header">
       <Link href="/magazine" aria-label="Back to magazines"><ArrowLeft aria-hidden="true" /></Link>
@@ -168,12 +171,11 @@ function ReaderHeader({ onSearch }: { onSearch: () => void }) {
   </header>
 }
 
-function DesktopToolbar({ issue, currentPage, pageCount, zoom, hasPdf, isBookmarked, shareStatus, onPageChange, onZoomChange, onTogglePanel, onBookmark, onFullscreen, onShare }: {
+function DesktopToolbar({ issue, currentPage, pageCount, zoom, isBookmarked, shareStatus, onPageChange, onZoomChange, onTogglePanel, onBookmark, onFullscreen, onShare }: {
   issue: Issue
   currentPage: number
   pageCount: number
-  zoom: number
-  hasPdf: boolean
+  zoom: number
   isBookmarked: boolean
   shareStatus: string
   onPageChange: (page: number) => void
@@ -186,7 +188,7 @@ function DesktopToolbar({ issue, currentPage, pageCount, zoom, hasPdf, isBookmar
   return <footer className="reader-desktop-toolbar">
     <div className="reader-toolbar-group reader-toolbar-left"><button type="button" onClick={() => onTogglePanel('contents')}><List aria-hidden="true" />Table of Contents</button><button type="button" onClick={() => onTogglePanel('bookmarks')}><Bookmark aria-hidden="true" />Bookmarks</button></div>
     <div className="reader-toolbar-center"><div className="reader-zoom-control"><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(75, zoom - 25))}><Minus aria-hidden="true" /></button><span>{zoom}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 25))}><Plus aria-hidden="true" /></button></div><label className="reader-page-input"><span className="sr-only">Current page</span><input type="number" min={1} max={pageCount} value={currentPage} onChange={(event) => onPageChange(Number(event.target.value))} /><span>of {pageCount}</span></label></div>
-    <div className="reader-toolbar-group reader-toolbar-right"><button type="button" onClick={() => onTogglePanel('search')} aria-label="Search issue"><Search aria-hidden="true" /></button>{hasPdf && <a href={issue.fileUrl ? `${issue.fileUrl}&download=1` : undefined} aria-label="Download issue"><Download aria-hidden="true" /></a>}<button type="button" onClick={onFullscreen} aria-label="Toggle fullscreen"><Maximize aria-hidden="true" /></button><button type="button" onClick={onShare} aria-label="Share issue"><Share2 aria-hidden="true" /></button>{shareStatus && <span className="reader-share-status" role="status">{shareStatus}</span>}</div>
+    <div className="reader-toolbar-group reader-toolbar-right"><button type="button" onClick={() => onTogglePanel('search')} aria-label="Search issue"><Search aria-hidden="true" /></button><button type="button" onClick={onFullscreen} aria-label="Toggle fullscreen"><Maximize aria-hidden="true" /></button><button type="button" onClick={onShare} aria-label="Share issue"><Share2 aria-hidden="true" /></button>{shareStatus && <span className="reader-share-status" role="status">{shareStatus}</span>}</div>
   </footer>
 }
 

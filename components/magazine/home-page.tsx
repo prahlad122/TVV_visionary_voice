@@ -40,6 +40,10 @@ export function HomePage({ copy, issues }: { copy: PageCopy; issues: Issue[] }) 
               <Link className="primary-button" href={issueReaderHref(featuredIssue)}>Read the issue <span aria-hidden="true">↗</span></Link>
               <Link className="text-link" href="/magazine">Explore all magazines <span aria-hidden="true">↗</span></Link>
             </div>
+              {/* <div className="home-hero-actions">
+              <Link className="primary-button" href={issueReaderHref(featuredIssue)}>Read the Blogs<span aria-hidden="true">↗</span></Link>
+              <Link className="text-link" href="/blog">Explore all Blog Posts <span aria-hidden="true">↗</span></Link>
+            </div> */}
           </div>
         </section>
 

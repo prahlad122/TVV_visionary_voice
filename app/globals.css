@@ -889,3 +889,17 @@ img { display: block; max-width: 100%; }
 .nav-progress-overlay { position: fixed; z-index: 1000; inset: 0; opacity: 0; animation: nav-progress-fade .2s ease-out .25s forwards; }
 @keyframes nav-progress-fade { to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .nav-progress span { width: 100%; animation: none; } .nav-progress-overlay { animation-duration: 0s; } }
+
+/* Download button beside "Subscribe" in the issue page and magazine reader headers. */
+.header-actions { display: flex; justify-self: end; align-items: center; gap: 10px; }
+.header-actions .reader-subscribe, .header-actions .article-subscribe { justify-self: auto; }
+.header-download { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--ink); padding: 9px 16px; color: var(--ink); font-size: 13px; transition: background .18s ease, color .18s ease; }
+.header-download svg { width: 15px; height: 15px; }
+.header-download:hover { background: var(--ink); color: var(--paper); }
+.header-download:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.article-header .header-download { padding: 10px 14px; font-size: 12px; }
+@media (max-width: 760px) {
+  .header-actions { gap: 6px; }
+  .article-header .header-download { padding: 8px; }
+  .article-header .header-download span { display: none; }
+}
