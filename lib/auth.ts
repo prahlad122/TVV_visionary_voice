@@ -63,8 +63,9 @@ export const auth = betterAuth({
   ],
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7,
-    updateAge: 60 * 60 * 24,
+    // An admin session lasts at most 12 hours (extended while in use) before signing in again.
+    expiresIn: 60 * 60 * 12,
+    updateAge: 60 * 60,
   },
 
   ...(process.env.NODE_ENV === "development"

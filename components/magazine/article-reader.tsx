@@ -52,19 +52,12 @@ export function ArticleReader({ issue }: { issue: Issue }) {
         <div className="article-byline"><span>THE VISIONARY VOICE</span><span>{issue.date}</span>{issue.fileUrl && <Link href={bookHref}><BookOpen aria-hidden="true" /> Read as a magazine</Link>}{issue.fileUrl && <a href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download original PDF</a>}</div>
         {/* The description is already the deck under the title, so it is not repeated here. */}
         {issue.summary
-          ? <>
-            <section className="article-body summary-article" aria-label="The issue in brief">
-              <span className="eyebrow">The issue in brief</span>
-              <SummaryPreview summary={issue.summary} lines={7} />
-              {issue.fileUrl && <p className="summary-cta"><Link className="text-link" href={bookHref}><BookOpen aria-hidden="true" /> Read the full issue as a magazine</Link></p>}
-            </section>
-            {/* Text extracted from a designed PDF is rough, so it sits behind the edited summary. */}
-            {issue.articleText?.trim() && <details className="article-fulltext">
-              <summary>Read the full text from the issue</summary>
-              <div className="article-body"><EditorialCopy text={tidyExtractedText(issue.articleText)} /></div>
-            </details>}
-          </>
-          : <section className="article-body" aria-label="Issue article content">
+          ? <section className="article-body summary-article" aria-label="The issue in brief">
+            <span className="eyebrow">The issue in brief</span>
+            <SummaryPreview summary={issue.summary} lines={7} />
+            {/* {issue.fileUrl && <p className="summary-cta"><Link className="text-link" href={bookHref}><BookOpen aria-hidden="true" /> Read the full issue as a magazine</Link></p>} */}
+          </section>
+          :<section className="article-body" aria-label="Issue article content">
             {issue.articleText?.trim()
               ? <EditorialCopy text={tidyExtractedText(issue.articleText)} />
               : <p className="article-message">
@@ -72,7 +65,6 @@ export function ArticleReader({ issue }: { issue: Issue }) {
                 {issue.fileUrl && <> <Link className="text-link" href={bookHref}>Read the full issue as a magazine</Link>.</>}
               </p>}
           </section>}
-        {issue.fileUrl && <a className="article-pdf-link" href={`${issue.fileUrl}&download=1`}><Download aria-hidden="true" /> Download the original issue PDF</a>}
       </article>
       <aside className="article-ad-rail" aria-label="Sponsored stories and recommendations">
         <div className="article-ad-heading"><span>Discover</span><h2 className="editorial">More to explore</h2></div>

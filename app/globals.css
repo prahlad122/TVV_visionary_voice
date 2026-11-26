@@ -873,3 +873,12 @@ img { display: block; max-width: 100%; }
 /* Fill the 3:4 frame so covers of any shape line up without grey letterbox bands;
    anchor to the top so a magazine masthead is never the part that is cropped. */
 .cover-art-authentic img { object-fit: cover !important; object-position: center top; }
+
+/* Page loader (app/loading.tsx): shown while a page loads. */
+.page-loader { display: flex; min-height: 100vh; min-height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px; background: var(--paper); color: var(--ink); }
+.page-loader-wordmark { font-family: 'Instrument Serif', Georgia, serif; font-size: clamp(28px, 4vw, 40px); line-height: 1; letter-spacing: -.8px; }
+.page-loader-bar { position: relative; width: min(220px, 60vw); height: 2px; overflow: hidden; background: rgba(32, 33, 31, .12); }
+.page-loader-bar span { position: absolute; inset: 0 auto 0 0; width: 40%; background: var(--accent); animation: page-loader-slide 1.1s ease-in-out infinite; }
+.page-loader-label { color: var(--muted, #6b6b66); font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
+@keyframes page-loader-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .page-loader-bar span { width: 100%; animation: none; opacity: .6; } }

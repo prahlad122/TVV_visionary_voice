@@ -22,8 +22,10 @@ export function AuthForm({ mode, nextPath = '/admin' }: AuthFormProps) {
     const email = String(form.get('email') ?? '').trim()
     const password = String(form.get('password') ?? '')
     try {
+      // rememberMe: false keeps the session cookie only until the browser is closed, so the
+      // admin is asked to sign in again on the next visit instead of staying signed in for days.
       const result = mode === 'sign-in'
-        ? await authClient.signIn.email({ email, password })
+        ? await authClient.signIn.email({ email, password, rememberMe: false })
         : await authClient.signUp.email({ email, password, name: String(form.get('name') ?? '').trim() })
 
       if (result.error) {

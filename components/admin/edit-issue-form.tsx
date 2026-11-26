@@ -110,6 +110,19 @@ export function EditIssueForm({ issue, userId }: { issue: EditableIssue; userId:
     return () => window.clearInterval(timer)
   }, [pending, router])
 
+  // Once a requested summary finishes, swap "Generating a new summary…" for the outcome.
+  const wasPending = useRef(pending)
+  useEffect(() => {
+    if (wasPending.current && !pending) {
+      setMessage((current) => current?.text.startsWith('Generating a new summary')
+        ? issue.summaryStatus === 'failed'
+          ? { tone: 'error', text: 'The summary could not be generated. Try again in a minute, or write one below.' }
+          : { tone: 'ok', text: 'The new summary is ready.' }
+        : current)
+    }
+    wasPending.current = pending
+  }, [pending, issue.summaryStatus])
+
   // Warn before leaving with unsaved changes.
   useEffect(() => {
     if (!dirty) return
@@ -348,14 +361,14 @@ export function EditIssueForm({ issue, userId }: { issue: EditableIssue; userId:
             </details>}
           </section>
 
-          <section className="edit-issue-card">
+          {/* <section className="edit-issue-card">
             <h2 className="editorial">Article text</h2>
             <p className="edit-issue-note">The full text behind “Read the full text from the issue”. Uploading a new PDF replaces it with the new PDF’s text, unless you change it here too.</p>
             <label className="admin-field">Article text
               <textarea className="edit-issue-article" value={fields.articleText} onChange={(event) => set('articleText', event.target.value)} rows={16} maxLength={MAX_ARTICLE_CHARS} placeholder="Use a blank line between paragraphs; lines starting with # become section headings." />
               <small>{fields.articleText.length.toLocaleString('en-US')} / {MAX_ARTICLE_CHARS.toLocaleString('en-US')} characters</small>
             </label>
-          </section>
+          </section> */}
         </div>
 
         <aside className="edit-issue-side">
