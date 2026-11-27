@@ -7,6 +7,7 @@ import { ArrowLeft, Bookmark, Download, List, Maximize, Minus, Plus, Search, Sha
 import * as pdfjs from 'pdfjs-dist'
 import type { Issue } from './issue-cover'
 import { BookViewer } from './book-viewer'
+import { SubscribeButton } from '@/components/subscribe-button'
 import { LARGE_PDF_OPTIONS, type ReaderPdf } from './page-image-cache'
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
@@ -157,10 +158,10 @@ function ReaderHeader({ onSearch, downloadHref }: { onSearch: () => void; downlo
   return <header className="reader-header">
     <div className="reader-desktop-header">
       <Link className="wordmark" href="/" aria-label="The Visionary Voice home"><span className="wordmark-title"><span className="wordmark-the">The</span> Visionary Voice</span><span className="wordmark-tagline">THE WORLD OF BUSINESS, IN PERSPECTIVE</span></Link>
-      <nav className="reader-nav" aria-label="Main navigation"><Link href="/">Home</Link><Link className="active" href="/magazine">Magazine</Link><Link href="/about">About Us</Link></nav>
+      <nav className="reader-nav" aria-label="Main navigation"><Link href="/">Home</Link><Link className="active" href="/magazine">Magazine</Link><Link href="/blog">Blog</Link><Link href="/about">About Us</Link></nav>
       <div className="header-actions">
         {downloadHref && <a className="header-download" href={downloadHref} aria-label="Download the issue PDF"><Download aria-hidden="true" /><span>Download</span></a>}
-        <Link className="reader-subscribe" href="/#newsletter">Subscribe</Link>
+        <SubscribeButton className="reader-subscribe" />
       </div>
     </div>
     <div className="reader-mobile-header">
@@ -175,7 +176,7 @@ function DesktopToolbar({ issue, currentPage, pageCount, zoom, isBookmarked, sha
   issue: Issue
   currentPage: number
   pageCount: number
-  zoom: number
+  zoom: number
   isBookmarked: boolean
   shareStatus: string
   onPageChange: (page: number) => void

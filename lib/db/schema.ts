@@ -1,4 +1,4 @@
-import { boolean, bigint, date, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { boolean, bigint, date, integer, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 /** One pre-rendered page of an issue: its private R2 object key and pixel size. */
 export type PageImage = { path: string; width: number; height: number }
@@ -86,6 +86,50 @@ export const magazineIssues = pgTable('magazine_issues', {
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [unique().on(table.userId, table.slug)])
+
+/** A blog post written in the admin's blog editor. `content` is light Markdown (see components/blog/blog-content.tsx). */
+export const blogPosts = pgTable('blog_posts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId').notNull(),
+  title: text('title').notNull(),
+  slug: text('slug').notNull(),
+  excerpt: text('excerpt').notNull().default(''),
+  content: text('content').notNull().default(''),
+  author: text('author').notNull().default(''),
+  category: text('category').notNull().default(''),
+  /** Private R2 object key under blog/<userId>/<postId>/, served by /api/blog-assets. */
+  coverUrl: text('coverUrl'),
+  published: boolean('published').notNull().default(false),
+  /** Set the first time the post is published; shown as the post's date. */
+  publishedAt: timestamp('publishedAt', { withTimezone: true }),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [unique().on(table.userId, table.slug)])
+
+/** People who asked for new-edition emails (the Subscribe popup and the footer form). */
+export const newsletterSubscribers = pgTable('newsletter_subscribers', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId').notNull(),
+  email: text('email').notNull(),
+  /** 'subscribed' or 'unsubscribed'; unsubscribed people are kept so they are never emailed again by accident. */
+  status: text('status').notNull().default('subscribed'),
+  sourcePage: text('sourcePage').notNull().default('/'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [unique().on(table.userId, table.email)])
+
+/** One "email subscribers" send from the admin portal, about a magazine issue or a blog post. */
+export const newsletterSends = pgTable('newsletter_sends', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId').notNull(),
+  /** 'issue' or 'post' */
+  kind: text('kind').notNull(),
+  itemId: text('itemId').notNull(),
+  title: text('title').notNull(),
+  recipients: integer('recipients').notNull().default(0),
+  failed: integer('failed').notNull().default(0),
+  sentAt: timestamp('sentAt', { withTimezone: true }).notNull().defaultNow(),
+})
 
 export const crmContacts = pgTable('crm_contacts', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),

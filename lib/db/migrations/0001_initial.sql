@@ -127,3 +127,51 @@ CREATE TABLE IF NOT EXISTS "analytics_events" (
 );
 CREATE INDEX IF NOT EXISTS "analytics_events_user_created_idx" ON "analytics_events" ("userId", "createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "analytics_events_session_idx" ON "analytics_events" ("userId", "sessionHash", "createdAt" DESC);
+
+CREATE TABLE IF NOT EXISTS "blog_posts" (
+  "id" text PRIMARY KEY,
+  "userId" text NOT NULL,
+  "title" text NOT NULL,
+  "slug" text NOT NULL,
+  "excerpt" text NOT NULL DEFAULT '',
+  "content" text NOT NULL DEFAULT '',
+  "author" text NOT NULL DEFAULT '',
+  "category" text NOT NULL DEFAULT '',
+  "coverUrl" text,
+  "published" boolean NOT NULL DEFAULT false,
+  "publishedAt" timestamptz,
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  UNIQUE ("userId", "slug")
+);
+CREATE INDEX IF NOT EXISTS "blog_posts_published_idx" ON "blog_posts" ("published", "publishedAt" DESC);
+
+CREATE TABLE IF NOT EXISTS "newsletter_subscribers" (
+  "id" text PRIMARY KEY,
+  "userId" text NOT NULL,
+  "email" text NOT NULL,
+  "status" text NOT NULL DEFAULT 'subscribed',
+  "sourcePage" text NOT NULL DEFAULT '/',
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  "updatedAt" timestamptz NOT NULL DEFAULT now(),
+  UNIQUE ("userId", "email")
+);
+-- Newsletter sign-ups made before this table existed were saved as CRM contacts with email consent.
+INSERT INTO "newsletter_subscribers" ("id", "userId", "email", "sourcePage", "createdAt", "updatedAt")
+SELECT DISTINCT ON ("userId", lower("email")) gen_random_uuid()::text, "userId", lower("email"), "sourcePage", "createdAt", "createdAt"
+FROM "crm_contacts"
+WHERE "emailConsent" = true AND "source" = 'newsletter'
+ORDER BY "userId", lower("email"), "createdAt"
+ON CONFLICT ("userId", "email") DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS "newsletter_sends" (
+  "id" text PRIMARY KEY,
+  "userId" text NOT NULL,
+  "kind" text NOT NULL,
+  "itemId" text NOT NULL,
+  "title" text NOT NULL,
+  "recipients" integer NOT NULL DEFAULT 0,
+  "failed" integer NOT NULL DEFAULT 0,
+  "sentAt" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "newsletter_sends_item_idx" ON "newsletter_sends" ("userId", "kind", "itemId", "sentAt" DESC);

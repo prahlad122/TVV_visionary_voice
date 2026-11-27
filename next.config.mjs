@@ -14,6 +14,7 @@ const nextConfig = {
     
     localPatterns: [
     { pathname: '/api/magazine-assets' },
+    { pathname: '/api/blog-assets' },
     { pathname: '/tvv-logo.png' },
     { pathname: '/edition-*.png' },
     { pathname: '/cover-*.png' },

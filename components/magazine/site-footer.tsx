@@ -132,6 +132,13 @@ export function SiteFooter() {
               </Link>
 
               <Link
+                href="/blog"
+                className="text-[11px] sm:text-sm hover:opacity-70"
+              >
+                Blog
+              </Link>
+
+              <Link
                 href="/about"
                 className="text-[11px] sm:text-sm hover:opacity-70"
               >

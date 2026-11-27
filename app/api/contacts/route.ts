@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { crmContacts } from '@/lib/db/schema'
 import { findAdminOwnerId } from '@/lib/admin-owner'
+import { addSubscriber } from '@/lib/newsletter'
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -50,5 +51,7 @@ export async function POST(request: NextRequest) {
       emailConsent: true,
     })
   }
+  // Every sign-up here asked for new-edition emails (consent is required above).
+  await addSubscriber(ownerId, email, sourcePage)
   return NextResponse.json({ ok: true }, { status: 201 })
 }

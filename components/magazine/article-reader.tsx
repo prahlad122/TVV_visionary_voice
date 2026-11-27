@@ -6,6 +6,8 @@ import { ArrowLeft, BookOpen, Download, ExternalLink } from "lucide-react";
 import { tidyExtractedText } from "@/lib/text-tidy";
 import { SummaryPreview } from "./summary-preview";
 import type { Issue } from "./issue-cover";
+import { RailSection, type RailItem } from "./explore-rail";
+import { SubscribeButton } from "@/components/subscribe-button";
 
 function paragraphs(text: string) {
   const parts = text
@@ -49,7 +51,14 @@ function EditorialCopy({ text }: { text: string }) {
  * instantly. It never downloads the PDF: issues without stored text point
  * readers to the magazine view instead.
  */
-export function ArticleReader({ issue }: { issue: Issue }) {
+export function ArticleReader({
+  issue,
+  blogPosts = [],
+}: {
+  issue: Issue;
+  /** The latest blog posts, shown in the right-hand panel under "From the blog". */
+  blogPosts?: RailItem[];
+}) {
   const bookHref = `/read/${encodeURIComponent(issue.id)}/book`;
   const ads = [
     {
@@ -59,13 +68,6 @@ export function ArticleReader({ issue }: { issue: Issue }) {
         issue.description || `Discover more perspectives in ${issue.industry}.`,
       image: issue.image,
       href: "/magazine",
-    },
-    {
-      label: "Stay in perspective",
-      title: "Ideas worth turning to.",
-      detail: "Meet the people and organizations shaping business.",
-      image: "/cover-man-suit.png",
-      href: "/about",
     },
   ];
 
@@ -89,9 +91,7 @@ export function ArticleReader({ issue }: { issue: Issue }) {
               <span>Download</span>
             </a>
           )} */}
-          <Link className="article-subscribe" href="/#newsletter">
-            Subscribe
-          </Link>
+          <SubscribeButton className="article-subscribe" />
         </div>
       </header>
       <main className="article-layout">
@@ -161,7 +161,7 @@ export function ArticleReader({ issue }: { issue: Issue }) {
           )}
         </article>
         <aside
-          className="article-ad-rail"
+          className={blogPosts.length ? "article-ad-rail has-sections" : "article-ad-rail"}
           aria-label="Sponsored stories and recommendations"
         >
           <div className="article-ad-heading">
@@ -191,6 +191,13 @@ export function ArticleReader({ issue }: { issue: Issue }) {
           <Link className="article-archive-link" href="/magazine">
             Browse all magazine editions <span>→</span>
           </Link>
+          <RailSection
+            eyebrow="The blog"
+            title="From the blog"
+            items={blogPosts}
+            moreHref="/blog"
+            moreLabel="Read all blog posts"
+          />
         </aside>
       </main>
     </div>

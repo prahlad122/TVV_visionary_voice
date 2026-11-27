@@ -11,6 +11,8 @@ const rules = {
   issue: { prefix: /^issue-[\w.-]+\.pdf$/i, types: ['application/pdf'], maxBytes: 400 * MB },
   cover: { prefix: /^cover-[\w.-]+\.(jpe?g|png|webp)$/i, types: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 8 * MB },
   page: { prefix: /^pages\/page-\d{4}\.(webp|jpg)$/, types: ['image/webp', 'image/jpeg'], maxBytes: 8 * MB },
+  // A blog post's cover image; `issueId` is then the post's id and the file goes under blog/.
+  'blog-cover': { prefix: /^cover-[\w.-]+\.(jpe?g|png|webp)$/i, types: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 8 * MB },
 } as const
 
 type UploadRequest = { issueId?: unknown; assetType?: unknown; filename?: unknown; contentType?: unknown; size?: unknown }
@@ -38,7 +40,8 @@ export async function POST(request: NextRequest) {
   if (size <= 0 || size > rule.maxBytes) return NextResponse.json({ error: `Files of this kind must be at most ${rule.maxBytes / MB} MB.` }, { status: 400 })
 
   const dot = filename.lastIndexOf('.')
-  const key = `magazines/${admin.id}/${issueId}/${filename.slice(0, dot)}-${randomBytes(6).toString('hex')}${filename.slice(dot)}`
+  const folder = assetType === 'blog-cover' ? 'blog' : 'magazines'
+  const key = `${folder}/${admin.id}/${issueId}/${filename.slice(0, dot)}-${randomBytes(6).toString('hex')}${filename.slice(dot)}`
   try {
     return NextResponse.json({ url: await createUploadUrl(key, contentType), key })
   } catch (error) {

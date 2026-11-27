@@ -1,13 +1,19 @@
 import { and, count, desc, eq, gte, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { analyticsEvents, cmsPages, crmContacts, magazineIssues } from '@/lib/db/schema'
+import { analyticsEvents, blogPosts, cmsPages, crmContacts, magazineIssues, newsletterSends, newsletterSubscribers } from '@/lib/db/schema'
+import { newsletterConfig } from '@/lib/newsletter'
+import { plainText } from '@/components/blog/blog-content'
+import { blogCoverUrl } from '@/lib/blog'
 import { defaultPageCopy } from '@/lib/public-content'
 
 export async function getAdminDashboardData(userId: string) {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-  const [contacts, issues, savedPages, totals, topSources, topPages, devices, recentEvents] = await Promise.all([
+  const [contacts, issues, posts, subscribers, sends, savedPages, totals, topSources, topPages, devices, recentEvents] = await Promise.all([
     db.select().from(crmContacts).where(eq(crmContacts.userId, userId)).orderBy(desc(crmContacts.createdAt)),
     db.select().from(magazineIssues).where(eq(magazineIssues.userId, userId)).orderBy(desc(magazineIssues.createdAt)).limit(100),
+    db.select().from(blogPosts).where(eq(blogPosts.userId, userId)).orderBy(desc(blogPosts.updatedAt)).limit(200),
+    db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.userId, userId)).orderBy(desc(newsletterSubscribers.createdAt)).limit(2000),
+    db.select().from(newsletterSends).where(eq(newsletterSends.userId, userId)).orderBy(desc(newsletterSends.sentAt)).limit(200),
     db.select().from(cmsPages).where(eq(cmsPages.userId, userId)).orderBy(desc(cmsPages.updatedAt)),
     db.select({
       views: count(),
@@ -42,6 +48,25 @@ export async function getAdminDashboardData(userId: string) {
   return {
     contacts: contacts.map((contact) => ({ ...contact, createdAt: contact.createdAt.toISOString() })),
     issues: issues.map((issue) => ({ ...issue, createdAt: issue.createdAt.toISOString(), issueDate: issue.issueDate ?? '' })),
+    posts: posts.map((post) => ({
+      id: post.id,
+      title: post.title,
+      slug: post.slug,
+      excerpt: post.excerpt,
+      category: post.category,
+      author: post.author,
+      coverSrc: blogCoverUrl(post),
+      published: post.published,
+      publishedAt: post.publishedAt?.toISOString() ?? null,
+      updatedAt: post.updatedAt.toISOString(),
+      words: plainText(post.content).split(' ').filter(Boolean).length,
+    })),
+    newsletter: {
+      ready: newsletterConfig().ready,
+      from: process.env.NEWSLETTER_FROM?.trim() || null,
+      subscribers: subscribers.map((row) => ({ id: row.id, email: row.email, status: row.status, sourcePage: row.sourcePage, createdAt: row.createdAt.toISOString() })),
+      sends: sends.map((row) => ({ id: row.id, kind: row.kind, itemId: row.itemId, title: row.title, recipients: row.recipients, failed: row.failed, sentAt: row.sentAt.toISOString() })),
+    },
     pages,
     analytics: {
       views: Number(totals[0]?.views ?? 0),

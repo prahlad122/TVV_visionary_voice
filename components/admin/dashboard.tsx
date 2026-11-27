@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  createContext,
   type FormEvent,
+  type ReactNode,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -23,7 +26,10 @@ import {
   updateContact,
   updateMagazineIssue,
 } from "@/lib/actions/admin";
+import { deleteBlogPost, setBlogPostPublished } from "@/lib/actions/blog";
+import { removeSubscriber, sendNewsletter } from "@/lib/actions/newsletter";
 import type { PageImage } from "@/lib/db/schema";
+import { BLOG_NOTICE_KEY, BlogEditor } from "./blog-editor";
 
 /** Matches the server limit in lib/actions/admin.ts; parsed PDF text can be long. */
 const MAX_ARTICLE_CHARS = 1_000_000;
@@ -62,6 +68,26 @@ type Issue = {
   featured: boolean;
   createdAt: string;
 };
+type BlogPostRow = {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string;
+  category: string;
+  author: string;
+  coverSrc: string | null;
+  published: boolean;
+  publishedAt: string | null;
+  updatedAt: string;
+  words: number;
+};
+type Newsletter = {
+  /** RESEND_API_KEY and NEWSLETTER_FROM are set. */
+  ready: boolean;
+  from: string | null;
+  subscribers: Array<{ id: string; email: string; status: string; sourcePage: string; createdAt: string }>;
+  sends: Array<{ id: string; kind: string; itemId: string; title: string; recipients: number; failed: number; sentAt: string }>;
+};
 type PageRecord = {
   slug: string;
   title: string;
@@ -94,24 +120,33 @@ type DashboardProps = {
   email: string;
   contacts: Contact[];
   issues: Issue[];
+  posts: BlogPostRow[];
+  newsletter: Newsletter;
   pages: PageRecord[];
   analytics: Analytics;
+  adminName?: string;
   initialPanel?: string;
+  /** `?tab=blog` opens the Blog tab of "Upload" / "Your issues". */
+  initialTab?: string;
   savedIssueId?: string;
 };
+/** "Upload" and "Your issues" each have a Magazine and a Blog tab. */
+type Kind = "magazine" | "blog";
 type Panel =
   | "overview"
   | "contacts"
   | "magazines"
   | "issues"
+  | "newsletter"
   | "pages"
   | "analytics";
 
 const panels: Array<{ id: Panel; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "contacts", label: "Contacts" },
-  { id: "magazines", label: "Upload magazine" },
+  { id: "magazines", label: "Upload" },
   { id: "issues", label: "Your issues" },
+  { id: "newsletter", label: "Newsletter" },
   { id: "pages", label: "Page editor" },
   { id: "analytics", label: "Analytics" },
 ];
@@ -121,15 +156,32 @@ export function AdminDashboard({
   email,
   contacts,
   issues,
+  posts,
+  newsletter,
   pages,
   analytics,
+  adminName = "",
   initialPanel,
+  initialTab,
   savedIssueId,
 }: DashboardProps) {
   const router = useRouter();
-  // `/admin?panel=issues` (used by the edit page) opens that tab.
-  const [panel, setPanel] = useState<Panel>(
-    () => panels.find((item) => item.id === initialPanel)?.id ?? "overview",
+  // `/admin?panel=issues` (used by the edit page) opens that tab; the old `?panel=blog`
+  // address now opens "Your issues" on its Blog tab.
+  const [panel, setPanel] = useState<Panel>(() =>
+    initialPanel === "blog"
+      ? "issues"
+      : (panels.find((item) => item.id === initialPanel)?.id ?? "overview"),
+  );
+  const [kind, setKind] = useState<Kind>(
+    initialTab === "blog" || initialPanel === "blog" ? "blog" : "magazine",
+  );
+  // The id of the post being written in Upload → Blog; a new one after each save.
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const blogCategories = useMemo(
+    () =>
+      Array.from(new Set(posts.map((post) => post.category).filter(Boolean))).sort(),
+    [posts],
   );
   const savedTitle = savedIssueId
     ? issues.find((issue) => issue.id === savedIssueId)?.title
@@ -154,6 +206,19 @@ export function AdminDashboard({
       /* Storage blocked: the plain confirmation stays. */
     }
   }, [savedIssueId, savedTitle]);
+
+  // The blog editor hands over what it just did ("Draft saved", "Published") before
+  // returning here, so it can be confirmed on the Blog tab.
+  useEffect(() => {
+    try {
+      const note = window.sessionStorage.getItem(BLOG_NOTICE_KEY);
+      if (!note) return;
+      window.sessionStorage.removeItem(BLOG_NOTICE_KEY);
+      setNotice(note);
+    } catch {
+      /* Storage blocked: no notice. */
+    }
+  }, []);
 
   // Notices belong to the tab they were shown on, so switching tabs clears them.
   function showPanel(next: Panel) {
@@ -217,6 +282,43 @@ export function AdminDashboard({
     });
   }
 
+  // "Email subscribers": one click (plus a confirmation) sends a published issue or post to
+  // everyone on the list. Shared with the issue and post cards through EmailContext.
+  const subscriberCount = newsletter.subscribers.filter((row) => row.status === "subscribed").length;
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  function lastSent(kind: "issue" | "post", id: string) {
+    return newsletter.sends.find((send) => send.kind === kind && send.itemId === id);
+  }
+  function emailSubscribers(kind: "issue" | "post", id: string, title: string) {
+    if (!newsletter.ready) {
+      setNotice("Email sending is not set up yet. Add RESEND_API_KEY and NEWSLETTER_FROM to the environment (see the Newsletter tab), then restart the server.");
+      return;
+    }
+    if (!subscriberCount) {
+      setNotice("There are no subscribers yet. People join with the Subscribe button on the site.");
+      return;
+    }
+    const previous = lastSent(kind, id);
+    const question = `Email “${title}” to ${subscriberCount} ${subscriberCount === 1 ? "subscriber" : "subscribers"}?${previous ? `\n\nIt was already sent on ${new Date(previous.sentAt).toLocaleString()} to ${previous.recipients}.` : ""}`;
+    if (!window.confirm(question)) return;
+    setSendingId(id);
+    setNotice(`Sending “${title}” to ${subscriberCount} ${subscriberCount === 1 ? "subscriber" : "subscribers"}…`);
+    void (async () => {
+      try {
+        const result = await sendNewsletter(kind, id);
+        if (result.error && !result.sent) setNotice(`The email was not sent: ${result.error}`);
+        else if (result.failed) setNotice(`“${title}” emailed to ${result.sent}; ${result.failed} could not be sent (${result.error}).`);
+        else setNotice(`“${title}” emailed to ${result.sent} ${result.sent === 1 ? "subscriber" : "subscribers"}.`);
+        router.refresh();
+      } catch {
+        setNotice("The email could not be sent. Please try again.");
+      } finally {
+        setSendingId(null);
+      }
+    })();
+  }
+  const emailActions: EmailActions = { ready: newsletter.ready, count: subscriberCount, sendingId, lastSent, emailSubscribers };
+
   async function signOut() {
     await authClient.signOut();
     window.location.assign("/sign-in");
@@ -269,6 +371,7 @@ export function AdminDashboard({
             {notice}
           </p>
         )}
+        <EmailContext.Provider value={emailActions}>
         {panel === "overview" && (
           <Overview
             contacts={contacts}
@@ -287,23 +390,64 @@ export function AdminDashboard({
         {panel === "magazines" && (
           <MagazinesPanel
             issueCount={issues.length}
+            postCount={posts.length}
             userId={userId}
             runAction={runAction}
             onNavigate={showPanel}
+            kind={kind}
+            onKindChange={setKind}
+            blogEditor={
+              <BlogEditor
+                key={draftId}
+                isNew
+                categories={blogCategories}
+                post={{
+                  id: draftId,
+                  title: "",
+                  excerpt: "",
+                  content: "",
+                  author: adminName,
+                  category: "",
+                  coverUrl: null,
+                  slug: "",
+                  published: false,
+                  updatedAt: null,
+                }}
+                onSaved={(saved) => {
+                  // Like a magazine upload: show the new post in "Your issues" → Blog.
+                  setPanel("issues");
+                  setKind("blog");
+                  setNotice(saved);
+                  setDraftId(crypto.randomUUID());
+                }}
+              />
+            }
           />
         )}
         {panel === "issues" && (
           <IssuesPanel
             issues={issues}
+            posts={posts}
             userId={userId}
             runAction={runAction}
             onNavigate={showPanel}
+            kind={kind}
+            onKindChange={setKind}
           />
         )}
         {panel === "pages" && (
           <PagesPanel pages={pages} pending={pending} runAction={runAction} />
         )}
+        {panel === "newsletter" && (
+          <NewsletterPanel
+            newsletter={newsletter}
+            issues={issues}
+            posts={posts}
+            runAction={runAction}
+          />
+        )}
         {panel === "analytics" && <AnalyticsPanel analytics={analytics} />}
+        </EmailContext.Provider>
       </div>
     </main>
   );
@@ -644,43 +788,93 @@ function ContactCard({
 
 type RunAction = (action: () => Promise<unknown>, success: string) => void;
 
+function KindTabs({
+  kind,
+  onChange,
+  counts,
+}: {
+  kind: Kind;
+  onChange: (kind: Kind) => void;
+  counts?: Record<Kind, number>;
+}) {
+  return (
+    <div className="kind-tabs" role="tablist" aria-label="Content type">
+      {(["magazine", "blog"] as const).map((item) => (
+        <button
+          key={item}
+          type="button"
+          role="tab"
+          aria-selected={kind === item}
+          className={kind === item ? "kind-tab is-active" : "kind-tab"}
+          onClick={() => onChange(item)}
+        >
+          {item === "magazine" ? "Magazine" : "Blog"}
+          {counts && <span className="kind-tab-count">{counts[item]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function MagazinesPanel({
   issueCount,
+  postCount,
   userId,
   runAction,
   onNavigate,
+  kind,
+  onKindChange,
+  blogEditor,
 }: {
   issueCount: number;
+  postCount: number;
   userId: string;
   runAction: RunAction;
   onNavigate: (panel: Panel) => void;
+  kind: Kind;
+  onKindChange: (kind: Kind) => void;
+  blogEditor: ReactNode;
 }) {
+  const count = kind === "magazine" ? issueCount : postCount;
   return (
     <section className="admin-panel">
+      <KindTabs kind={kind} onChange={onKindChange} />
       <div className="admin-panel-heading">
         <div>
           <span className="eyebrow">Publication library</span>
-          <h2 className="editorial">Upload a new issue</h2>
+          <h2 className="editorial">
+            {kind === "magazine" ? "Upload a new issue" : "Write a blog post"}
+          </h2>
         </div>
         <p>
-          Provide a PDF, article text file, or pasted article. PDFs may be up to
-          400 MB.
+          {kind === "magazine"
+            ? "Provide a PDF, article text file, or pasted article. PDFs may be up to 400 MB."
+            : "Write the post, add a cover, then save it as a draft or publish it to the blog."}
         </p>
       </div>
-      <UploadIssueForm
-        userId={userId}
-        runAction={runAction}
-        onNavigate={onNavigate}
-      />
-      {issueCount > 0 && (
+      {kind === "magazine" ? (
+        <UploadIssueForm
+          userId={userId}
+          runAction={runAction}
+          onNavigate={onNavigate}
+        />
+      ) : (
+        blogEditor
+      )}
+      {count > 0 && (
         <p className="issue-library-link">
-          {issueCount} {issueCount === 1 ? "issue" : "issues"} uploaded so far.{" "}
+          {count}{" "}
+          {kind === "magazine"
+            ? count === 1 ? "issue" : "issues"
+            : count === 1 ? "blog post" : "blog posts"}{" "}
+          so far.{" "}
           <button
             className="text-link"
             type="button"
             onClick={() => onNavigate("issues")}
           >
-            Open your issues <span aria-hidden="true">→</span>
+            Open your {kind === "magazine" ? "issues" : "blog posts"}{" "}
+            <span aria-hidden="true">→</span>
           </button>
         </p>
       )}
@@ -690,30 +884,55 @@ function MagazinesPanel({
 
 function IssuesPanel({
   issues,
+  posts,
   userId,
   runAction,
   onNavigate,
+  kind,
+  onKindChange,
 }: {
   issues: Issue[];
+  posts: BlogPostRow[];
   userId: string;
   runAction: RunAction;
   onNavigate: (panel: Panel) => void;
+  kind: Kind;
+  onKindChange: (kind: Kind) => void;
 }) {
+  const publishedPosts = posts.filter((post) => post.published).length;
   return (
     <section className="admin-panel">
+      <KindTabs
+        kind={kind}
+        onChange={onKindChange}
+        counts={{ magazine: issues.length, blog: posts.length }}
+      />
       <div className="admin-panel-heading">
         <div>
           <span className="eyebrow">Publication library</span>
           <h2 className="editorial">
-            Your issues <span className="issue-count">{issues.length}</span>
+            {kind === "magazine" ? "Your issues" : "Your blog posts"}{" "}
+            <span className="issue-count">
+              {kind === "magazine" ? issues.length : posts.length}
+            </span>
           </h2>
         </div>
         <p>
-          Draft issues stay private until published. Open an issue’s summary to
-          read it.
+          {kind === "magazine"
+            ? "Draft issues stay private until published. Open an issue’s summary to read it."
+            : `${publishedPosts} published · ${posts.length - publishedPosts} ${posts.length - publishedPosts === 1 ? "draft" : "drafts"}. Drafts stay private until published.`}
         </p>
       </div>
-      {issues.length ? (
+      {kind === "blog" ? (
+        <BlogList
+          posts={posts}
+          runAction={runAction}
+          onWrite={() => {
+            onKindChange("blog");
+            onNavigate("magazines");
+          }}
+        />
+      ) : issues.length ? (
         <div className="managed-issues">
           {issues.map((issue) => (
             <IssueManager
@@ -1334,6 +1553,7 @@ function IssueManager({
           >
             {issue.published ? "Unpublish" : "Publish"}
           </button>
+          {issue.published && <EmailButton kind="issue" id={issue.id} title={issue.title} />}
           <button
             className="secondary-button"
             onClick={() =>
@@ -1636,5 +1856,294 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <h3 className="editorial">{title}</h3>
       <p>{body}</p>
     </div>
+  );
+}
+
+function blogDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function BlogList({
+  posts,
+  runAction,
+  onWrite,
+}: {
+  posts: BlogPostRow[];
+  runAction: RunAction;
+  /** Opens Upload → Blog, where new posts are written. */
+  onWrite: () => void;
+}) {
+  if (!posts.length)
+    return (
+      <div className="empty-state">
+        <h3 className="editorial">No blog posts yet</h3>
+        <p>
+          Write your first post. Save it as a draft while you work, then publish
+          it to the blog when it is ready.
+        </p>
+        <button className="primary-button" type="button" onClick={onWrite}>
+          Write a blog post
+        </button>
+      </div>
+    );
+  return (
+    <div className="blog-admin-list">
+      {posts.map((post) => {
+        const editHref = `/admin/blog/${encodeURIComponent(post.id)}/edit`;
+        const empty = !post.published && post.words === 0;
+        return (
+          <article className="blog-admin-item" key={post.id}>
+            <Link
+              className="blog-admin-thumb"
+              href={editHref}
+              tabIndex={-1}
+              aria-hidden="true"
+            >
+              {post.coverSrc ? (
+                // A plain <img>: a draft's cover is only served with the admin's cookie.
+                <img src={post.coverSrc} alt="" loading="lazy" />
+              ) : (
+                <span className="editorial">{post.title.charAt(0) || "?"}</span>
+              )}
+            </Link>
+            <div className="blog-admin-copy">
+              <div className="blog-admin-status">
+                <span
+                  className={
+                    post.published ? "status-pill published" : "status-pill"
+                  }
+                >
+                  {post.published ? "Published" : "Draft"}
+                </span>
+                {post.category && <span>{post.category}</span>}
+                <span>
+                  {post.words.toLocaleString()} words ·{" "}
+                  {post.published && post.publishedAt
+                    ? `Published ${blogDate(post.publishedAt)}`
+                    : `Edited ${blogDate(post.updatedAt)}`}
+                </span>
+              </div>
+              <h3 className="editorial">
+                <Link href={editHref}>{post.title}</Link>
+              </h3>
+              {post.excerpt && <p>{post.excerpt}</p>}
+            </div>
+            <div className="managed-issue-actions blog-admin-actions">
+              <Link className="primary-button" href={editHref}>
+                Edit
+              </Link>
+              {post.published ? (
+                <a
+                  className="text-link"
+                  href={`/blog/${post.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View <span aria-hidden="true">↗</span>
+                </a>
+              ) : (
+                <span className="managed-issue-note">Not live yet</span>
+              )}
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={empty}
+                title={empty ? "Write the post before publishing it" : undefined}
+                onClick={() =>
+                  runAction(
+                    () => setBlogPostPublished(post.id, !post.published),
+                    post.published
+                      ? `“${post.title}” unpublished.`
+                      : `“${post.title}” is published on the blog.`,
+                  )
+                }
+              >
+                {post.published ? "Unpublish" : "Publish"}
+              </button>
+              {post.published && <EmailButton kind="post" id={post.id} title={post.title} />}
+              <button
+                className="text-danger"
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Delete “${post.title}”? This cannot be undone.`))
+                    runAction(() => deleteBlogPost(post.id), `“${post.title}” deleted.`);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+type EmailActions = {
+  ready: boolean;
+  count: number;
+  sendingId: string | null;
+  lastSent: (kind: "issue" | "post", id: string) => Newsletter["sends"][number] | undefined;
+  emailSubscribers: (kind: "issue" | "post", id: string, title: string) => void;
+};
+const EmailContext = createContext<EmailActions | null>(null);
+
+/** The one-click "Email subscribers" button on a published issue or post. */
+function EmailButton({ kind, id, title }: { kind: "issue" | "post"; id: string; title: string }) {
+  const email = useContext(EmailContext);
+  if (!email) return null;
+  const last = email.lastSent(kind, id);
+  const sending = email.sendingId === id;
+  return (
+    <button
+      className="secondary-button email-button"
+      type="button"
+      disabled={Boolean(email.sendingId)}
+      title={last ? `Last emailed ${new Date(last.sentAt).toLocaleString()} to ${last.recipients}` : `Send to ${email.count} subscribers`}
+      onClick={() => email.emailSubscribers(kind, id, title)}
+    >
+      {sending ? "Sending…" : last ? "Email again" : "Email subscribers"}
+      {!sending && <span className="kind-tab-count">{email.count}</span>}
+    </button>
+  );
+}
+
+function NewsletterPanel({
+  newsletter,
+  issues,
+  posts,
+  runAction,
+}: {
+  newsletter: Newsletter;
+  issues: Issue[];
+  posts: BlogPostRow[];
+  runAction: RunAction;
+}) {
+  const active = newsletter.subscribers.filter((row) => row.status === "subscribed");
+  const [showAll, setShowAll] = useState(false);
+  const listed = showAll ? newsletter.subscribers : newsletter.subscribers.slice(0, 12);
+  // The newest published items first, whether issue or post.
+  const items = [
+    ...issues.filter((issue) => issue.published).map((issue) => ({ kind: "issue" as const, id: issue.id, title: issue.title, label: "Magazine", date: issue.createdAt })),
+    ...posts.filter((post) => post.published).map((post) => ({ kind: "post" as const, id: post.id, title: post.title, label: "Blog", date: post.publishedAt ?? post.updatedAt })),
+  ].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 8);
+
+  function exportSubscribers() {
+    const csv = ["Email,Status,Joined,Page", ...newsletter.subscribers.map((row) => [row.email, row.status, row.createdAt, row.sourcePage].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))].join("\r\n");
+    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `visionary-voice-subscribers-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <section className="admin-panel">
+      <div className="admin-panel-heading">
+        <div>
+          <span className="eyebrow">Email newsletter</span>
+          <h2 className="editorial">
+            Subscribers <span className="issue-count">{active.length}</span>
+          </h2>
+        </div>
+        <p>People join with the Subscribe button and the footer form. Email them a new issue or post in one click.</p>
+      </div>
+
+      {!newsletter.ready && (
+        <div className="newsletter-setup" role="note">
+          <strong>Email sending is not set up yet.</strong>
+          <p>
+            Create a free account at resend.com, verify your company domain there, then add these to <code>.env.local</code> (and to Vercel) and restart the server:
+          </p>
+          <pre>{`RESEND_API_KEY=re_...\nNEWSLETTER_FROM="The Visionary Voice <news@yourdomain.com>"\nSITE_URL=https://yourdomain.com`}</pre>
+        </div>
+      )}
+      {newsletter.ready && (
+        <p className="newsletter-from">Emails are sent from <strong>{newsletter.from}</strong>.</p>
+      )}
+
+      <div className="newsletter-grid">
+        <section className="newsletter-card">
+          <h3 className="editorial">Send the latest</h3>
+          {items.length ? (
+            <ul className="newsletter-items">
+              {items.map((item) => (
+                <li key={`${item.kind}-${item.id}`}>
+                  <div>
+                    <span className="status-pill">{item.label}</span>
+                    <strong>{item.title}</strong>
+                  </div>
+                  <EmailButton kind={item.kind} id={item.id} title={item.title} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-copy">Publish a magazine issue or blog post to email it.</p>
+          )}
+        </section>
+
+        <section className="newsletter-card">
+          <h3 className="editorial">Sent</h3>
+          {newsletter.sends.length ? (
+            <ul className="newsletter-sends">
+              {newsletter.sends.slice(0, 10).map((send) => (
+                <li key={send.id}>
+                  <strong>{send.title}</strong>
+                  <span>
+                    {send.kind === "issue" ? "Magazine" : "Blog"} · {new Date(send.sentAt).toLocaleString()} · {send.recipients} sent{send.failed ? ` · ${send.failed} failed` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-copy">Nothing sent yet.</p>
+          )}
+        </section>
+      </div>
+
+      <section className="newsletter-card">
+        <div className="admin-subheading">
+          <h3 className="editorial">Everyone on the list</h3>
+          <button className="secondary-button" type="button" onClick={exportSubscribers} disabled={!newsletter.subscribers.length}>Export CSV</button>
+        </div>
+        {newsletter.subscribers.length ? (
+          <>
+            <ul className="newsletter-people">
+              {listed.map((row) => (
+                <li key={row.id}>
+                  <span className="newsletter-email">{row.email}</span>
+                  <span className={row.status === "subscribed" ? "status-pill published" : "status-pill"}>{row.status === "subscribed" ? "Subscribed" : "Unsubscribed"}</span>
+                  <span className="newsletter-joined">Joined {new Date(row.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  {row.status === "subscribed" && (
+                    <button
+                      className="text-danger"
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Remove ${row.email} from the newsletter?`))
+                          runAction(() => removeSubscriber(row.id), `${row.email} removed from the newsletter.`);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {newsletter.subscribers.length > 12 && (
+              <button className="text-link" type="button" onClick={() => setShowAll((value) => !value)}>
+                {showAll ? "Show fewer" : `Show all ${newsletter.subscribers.length}`}
+              </button>
+            )}
+          </>
+        ) : (
+          <p className="empty-copy">No subscribers yet.</p>
+        )}
+      </section>
+    </section>
   );
 }

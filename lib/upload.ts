@@ -1,8 +1,9 @@
 'use client'
 
-export type UploadAssetType = 'issue' | 'cover' | 'page'
+export type UploadAssetType = 'issue' | 'cover' | 'page' | 'blog-cover'
 
 type UploadOptions = {
+  /** The magazine issue's id, or the blog post's id for 'blog-cover'. */
   issueId: string
   assetType: UploadAssetType
   /** Name inside the issue's folder, e.g. `issue-may.pdf` or `pages/page-0001.webp`. */

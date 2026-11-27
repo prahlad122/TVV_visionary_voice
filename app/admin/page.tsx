@@ -10,8 +10,8 @@ export const maxDuration = 300
 
 export default async function AdminPage(props: PageProps<'/admin'>) {
   const admin = await requireAdmin()
-  const { panel, saved } = await props.searchParams
+  const { panel, saved, tab } = await props.searchParams
   const data = await getAdminDashboardData(admin.id)
   // `?saved=<id>` comes from the edit page after a save, to confirm it.
-  return <AdminDashboard userId={admin.id} email={admin.email} initialPanel={typeof panel === 'string' ? panel : undefined} savedIssueId={typeof saved === 'string' ? saved : undefined} {...data} />
+  return <AdminDashboard userId={admin.id} email={admin.email} adminName={admin.name ?? ''} initialPanel={typeof panel === 'string' ? panel : undefined} initialTab={typeof tab === 'string' ? tab : undefined} savedIssueId={typeof saved === 'string' ? saved : undefined} {...data} />
 }

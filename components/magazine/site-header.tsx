@@ -1,7 +1,7 @@
 import Link from 'next/link'
 
 type SiteHeaderProps = {
-  active: 'home' | 'magazine' | 'about'
+  active: 'home' | 'magazine' | 'blog' | 'about'
 }
 
 const navItems = [
